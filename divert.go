@@ -1,6 +1,7 @@
 package divert
 
 import (
+	"errors"
 	"net/netip"
 	"reflect"
 	"unsafe"
@@ -8,23 +9,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	DLLPath = `D:\OneDrive\code\go\itun\divert\WinDivert.dll`
-)
-
-// TODO: sync.Once on Open
-var divert *windows.DLL = windows.MustLoadDLL(DLLPath)
-var (
-	winDivertOpenProc     = divert.MustFindProc("WinDivertOpen")
-	winDivertRecvProc     = divert.MustFindProc("WinDivertRecv")
-	winDivertRecvExProc   = divert.MustFindProc("WinDivertRecvEx")
-	winDivertSendProc     = divert.MustFindProc("WinDivertSend")
-	winDivertSendExProc   = divert.MustFindProc("WinDivertSendEx")
-	winDivertShutdownProc = divert.MustFindProc("WinDivertShutdown")
-	winDivertCloseProc    = divert.MustFindProc("WinDivertClose")
-	winDivertSetParamProc = divert.MustFindProc("WinDivertSetParam")
-	winDivertGetParamProc = divert.MustFindProc("WinDivertGetParam")
-)
+// var (
+// 	divertOpenProc     = divert.MustFindProc("WinDivertOpen")
+// 	divertRecvProc     = divert.MustFindProc("WinDivertRecv")
+// 	divertRecvExProc   = divert.MustFindProc("WinDivertRecvEx")
+// 	divertSendProc     = divert.MustFindProc("WinDivertSend")
+// 	divertSendExProc   = divert.MustFindProc("WinDivertSendEx")
+// 	divertShutdownProc = divert.MustFindProc("WinDivertShutdown")
+// 	divertCloseProc    = divert.MustFindProc("WinDivertClose")
+// 	divertSetParamProc = divert.MustFindProc("WinDivertSetParam")
+// 	divertGetParamProc = divert.MustFindProc("WinDivertGetParam")
+// )
 
 type Layer uint8
 
@@ -38,23 +33,22 @@ const (
 
 type Address struct {
 	Timestamp int64
-	Header    struct {
-		Layer // Packet's layer.
-		Event // Packet event.
 
-		// UINT32 Sniffed : 1;                   /* Packet was sniffed? */
-		// UINT32 Outbound : 1;                  /* Packet is outound? */
-		// UINT32 Loopback : 1;                  /* Packet is loopback? */
-		// UINT32 Impostor : 1;                  /* Packet is impostor? */
-		// UINT32 IPv6 : 1;                      /* Packet is IPv6? */
-		// UINT32 IPChecksum : 1;                /* Packet has valid IPv4 checksum? */
-		// UINT32 TCPChecksum : 1;               /* Packet has valid TCP checksum? */
-		// UINT32 UDPChecksum : 1;               /* Packet has valid UDP checksum? */
-		Flags
+	Layer // Packet's layer.
+	Event // Packet event.
 
-		reserved1 uint8
-	}
-	Size uint32 //
+	// UINT32 Sniffed : 1;                   /* Packet was sniffed? */
+	// UINT32 Outbound : 1;                  /* Packet is outound? */
+	// UINT32 Loopback : 1;                  /* Packet is loopback? */
+	// UINT32 Impostor : 1;                  /* Packet is impostor? */
+	// UINT32 IPv6 : 1;                      /* Packet is IPv6? */
+	// UINT32 IPChecksum : 1;                /* Packet has valid IPv4 checksum? */
+	// UINT32 TCPChecksum : 1;               /* Packet has valid TCP checksum? */
+	// UINT32 UDPChecksum : 1;               /* Packet has valid UDP checksum? */
+	Flags
+	_ uint8
+
+	_size uint32 // Reserved2;
 
 	// DATA_NETWORK Network;   // Network layer data.
 	// DATA_FLOW Flow;         // Flow layer data.
@@ -66,11 +60,11 @@ type Address struct {
 type Flags uint8
 
 func (f Flags) Sniffed() bool {
-	return f&0b00000001 == 1
+	return f&0b00000001 != 0b00000001
 }
 
 func (f Flags) Outbound() bool {
-	return f&0b00000010 == 1
+	return f&0b00000010 != 0b00000010
 }
 
 func (f *Flags) SetOutbound(out bool) {
@@ -82,65 +76,32 @@ func (f *Flags) SetOutbound(out bool) {
 }
 
 func (f Flags) Loopback() bool {
-	return f&0b00000100 == 1
+	return f&0b00000100 != 0b00000100
 }
 
 func (f Flags) Impostor() bool {
-	return f&0b00001000 == 1
+	return f&0b00001000 != 0b00001000
 }
 
 func (f Flags) IPv6() bool {
-	return f&0b00010000 == 1
+	return f&0b00010000 != 0b00010000
 }
 
 func (f Flags) IPChecksum() bool {
-	return f&0b00100000 == 1
+	return f&0b00100000 != 0b00100000
 }
 
 func (f Flags) TCPChecksum() bool {
-	return f&0b01000000 == 1
+	return f&0b01000000 != 0b01000000
 }
 
 func (f Flags) UDPChecksum() bool {
-	return f&0b10000000 == 1
-}
-
-func (a *Address) Sniffed() bool {
-	return a.Header.Flags&0x01 != 0
-}
-
-func (a *Address) Outbound() bool {
-	return a.Header.Flags&0x02 != 0
-}
-
-func (a *Address) Loopback() bool {
-	return a.Header.Flags&0x04 != 0
-}
-
-func (a *Address) Impostor() bool {
-	return a.Header.Flags&0x08 != 0
-}
-
-func (a *Address) IPv6() bool {
-	return a.Header.Flags&0x10 != 0
-}
-
-func (a *Address) IPChecksum() bool {
-	return a.Header.Flags&0x20 != 0
-}
-
-func (a *Address) TCPChecksum() bool {
-	return a.Header.Flags&0x40 != 0
+	return f&0b10000000 != 0b10000000
 }
 
 func (a *Address) Network() *DATA_NETWORK {
 	return (*DATA_NETWORK)(unsafe.Pointer(&a.reserved3[0]))
 }
-
-func (a *Address) Clean() {
-	a.reserved3 = [64]byte{}
-}
-
 func (a *Address) Flow() *DATA_FLOW {
 	return (*DATA_FLOW)(unsafe.Pointer(&a.reserved3[0]))
 }
@@ -165,36 +126,44 @@ type DATA_FLOW struct {
 	LocalPort        uint16    // Local port.
 	RemotePort       uint16    // Remote port.
 	Protocol         Proto     // Protocol.
+
+	ipv6 bool
 }
 
-func (d *DATA_FLOW) LocalAddr() netip.AddrPort {
-	var addr netip.Addr
-	if d.localAddr[1] == 0xffff {
-		_t := *(*[4]byte)(unsafe.Pointer(&d.localAddr[0]))
+func (d *DATA_FLOW) LocalAddr() netip.Addr {
+	if d.localAddr[3] == 0 && d.localAddr[2] == 0 && d.localAddr[1] == 0x0000FFFF {
+		// ipv4
 
-		// TODO: don't know why, but it's reversed
-		_t[0], _t[1], _t[2], _t[3] = _t[3], _t[2], _t[1], _t[0]
-		addr = netip.AddrFrom4(_t)
+		_v := *(*[4]byte)(unsafe.Pointer(&d.localAddr[0]))
+		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
+		return netip.AddrFrom4(_v)
 	} else {
-		addr = netip.AddrFrom16(*(*[16]byte)(unsafe.Pointer(&d.localAddr)))
-	}
+		_v := *(*[16]byte)(unsafe.Pointer(&d.localAddr))
+		for i, j := 0, 15; i < j; i, j = i+1, j-1 {
+			_v[i], _v[j] = _v[j], _v[i]
+		}
 
-	return netip.AddrPortFrom(addr, d.LocalPort)
+		return netip.AddrFrom16(_v)
+	}
 }
 
-func (d *DATA_FLOW) RemoteAddr() netip.AddrPort {
-	var addr netip.Addr
-	if d.remoteAddr[1] == 0xffff {
-		_t := *(*[4]byte)(unsafe.Pointer(&d.remoteAddr[0]))
+func (d *DATA_FLOW) RemoteAddr() netip.Addr {
+	if d.remoteAddr[3] == 0 && d.remoteAddr[2] == 0 && d.remoteAddr[1] == 0x0000FFFF {
+		// ipv4
 
-		// TODO: don't know why, but it's reversed
-		_t[0], _t[1], _t[2], _t[3] = _t[3], _t[2], _t[1], _t[0]
-		addr = netip.AddrFrom4(_t)
+		_v := *(*[4]byte)(unsafe.Pointer(&d.remoteAddr[0]))
+		// big endian  to little endian
+		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
+		return netip.AddrFrom4(_v)
 	} else {
-		addr = netip.AddrFrom16(*(*[16]byte)(unsafe.Pointer(&d.remoteAddr)))
-	}
+		_v := *(*[16]byte)(unsafe.Pointer(&d.remoteAddr))
+		// big endian  to little endian
+		for i, j := 0, 15; i < j; i, j = i+1, j-1 {
+			_v[i], _v[j] = _v[j], _v[i]
+		}
 
-	return netip.AddrPortFrom(addr, d.RemotePort)
+		return netip.AddrFrom16(_v)
+	}
 }
 
 type DATA_SOCKET = DATA_FLOW
@@ -210,12 +179,19 @@ type DATA_REFLECT struct {
 type Handle windows.Handle
 
 func Open(filter string, layer Layer, priority int16, flags Flag) (Handle, error) {
+	once.Do(func() { divert.init() })
+
+	const WINDIVERT_PRIORITY_HIGHEST = 30000
+	if priority > WINDIVERT_PRIORITY_HIGHEST || priority < -WINDIVERT_PRIORITY_HIGHEST {
+		return Handle(0), errors.New("priority out of range [-30000, 30000]")
+	}
+
 	pf, err := windows.BytePtrFromString(filter)
 	if err != nil {
 		return Handle(0), err
 	}
 
-	r1, _, err := winDivertOpenProc.Call(uintptr(unsafe.Pointer(pf)), uintptr(layer), uintptr(priority), uintptr(flags))
+	r1, _, err := divert.OpenProc.Call(uintptr(unsafe.Pointer(pf)), uintptr(layer), uintptr(priority), uintptr(flags))
 	h := Handle(r1)
 	if h == INVALID_HANDLE_VALUE {
 		return Handle(0), err
@@ -234,7 +210,7 @@ func (h Handle) Recv(packet []byte) (int, Address, error) {
 		recvLenPtr = nil
 	}
 
-	r1, _, err := winDivertRecvProc.Call(
+	r1, _, err := divert.RecvProc.Call(
 		uintptr(h),
 		sp.Data,
 		uintptr(sp.Len),
@@ -258,14 +234,14 @@ func (h Handle) RecvEx(
 	var recvLen uint32
 	var addr Address
 	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
-	r1, _, err := winDivertRecvExProc.Call(
+	r1, _, err := divert.RecvExProc.Call(
 		uintptr(h),
 		sp.Data,
 		uintptr(sp.Len),
 		uintptr(unsafe.Pointer(&recvLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(&addr)),
-		uintptr(unsafe.Pointer(&addr.Size)),
+		uintptr(unsafe.Pointer(&addr._size)),
 		uintptr(unsafe.Pointer(lpOverlapped)),
 	)
 	if r1 == 0 {
@@ -281,7 +257,7 @@ func (h Handle) Send(
 
 	var pSendLen uint32
 	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
-	r1, _, err := winDivertSendProc.Call(
+	r1, _, err := divert.SendProc.Call(
 		uintptr(h),
 		sp.Data,
 		uintptr(sp.Len),
@@ -304,14 +280,14 @@ func (h Handle) SendEx(
 	var overlapped OVERLAPPED
 	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
 
-	r1, _, err := winDivertSendExProc.Call(
+	r1, _, err := divert.SendExProc.Call(
 		uintptr(h),
 		sp.Data,
 		uintptr(sp.Len),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(pAddr)),
-		uintptr(pAddr.Size),
+		uintptr(pAddr._size),
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
 
@@ -330,7 +306,7 @@ const (
 )
 
 func (h Handle) Shutdown(how SHUTDOWN) error {
-	r1, _, err := winDivertShutdownProc.Call(uintptr(h), uintptr(how))
+	r1, _, err := divert.ShutdownProc.Call(uintptr(h), uintptr(how))
 	if r1 == 0 {
 		return err
 	}
@@ -338,7 +314,7 @@ func (h Handle) Shutdown(how SHUTDOWN) error {
 }
 
 func (h Handle) Close() error {
-	r1, _, err := winDivertCloseProc.Call(uintptr(h))
+	r1, _, err := divert.CloseProc.Call(uintptr(h))
 	if r1 == 0 {
 		return err
 	}
@@ -356,7 +332,7 @@ const (
 )
 
 func (h Handle) SetParam(param PARAM, value uint64) error {
-	r1, _, err := winDivertSetParamProc.Call(uintptr(h), uintptr(param), uintptr(value))
+	r1, _, err := divert.SetParamProc.Call(uintptr(h), uintptr(param), uintptr(value))
 	if r1 == 0 {
 		return err
 	}
@@ -364,7 +340,7 @@ func (h Handle) SetParam(param PARAM, value uint64) error {
 }
 
 func (h Handle) GetParamProc(param PARAM) (value uint64, err error) {
-	r1, _, err := winDivertGetParamProc.Call(uintptr(h), uintptr(param), uintptr(unsafe.Pointer(&value)))
+	r1, _, err := divert.GetParamProc.Call(uintptr(h), uintptr(param), uintptr(unsafe.Pointer(&value)))
 	if r1 == 0 {
 		return 0, err
 	}
