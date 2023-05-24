@@ -7,9 +7,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var (
-	_DLLPath = `WinDivert.dll`
-)
+var _dllPath = `WinDivert.dll`
 
 var divert dll
 
@@ -33,31 +31,68 @@ type dll struct {
 
 var once sync.Once
 
-func (d *dll) init() {
-	d.OpenProc = d.MustFindProc("WinDivertOpen")
-	d.RecvProc = d.MustFindProc("WinDivertRecv")
-	d.RecvExProc = d.MustFindProc("WinDivertRecvEx")
-	d.SendProc = d.MustFindProc("WinDivertSend")
-	d.SendExProc = d.MustFindProc("WinDivertSendEx")
-	d.ShutdownProc = d.MustFindProc("WinDivertShutdown")
-	d.CloseProc = d.MustFindProc("WinDivertClose")
-	d.SetParamProc = d.MustFindProc("WinDivertSetParam")
-	d.GetParamProc = d.MustFindProc("WinDivertGetParam")
+func (d *dll) init() (err error) {
+	d.OpenProc, err = d.FindProc("WinDivertOpen")
+	if err != nil {
+		return err
+	}
+	d.RecvProc, err = d.FindProc("WinDivertRecv")
+	if err != nil {
+		return err
+	}
+	d.RecvExProc, err = d.FindProc("WinDivertRecvEx")
+	if err != nil {
+		return err
+	}
+	d.SendProc, err = d.FindProc("WinDivertSend")
+	if err != nil {
+		return err
+	}
+	d.SendExProc, err = d.FindProc("WinDivertSendEx")
+	if err != nil {
+		return err
+	}
+	d.ShutdownProc, err = d.FindProc("WinDivertShutdown")
+	if err != nil {
+		return err
+	}
+	d.CloseProc, err = d.FindProc("WinDivertClose")
+	if err != nil {
+		return err
+	}
+	d.SetParamProc, err = d.FindProc("WinDivertSetParam")
+	if err != nil {
+		return err
+	}
+	d.GetParamProc, err = d.FindProc("WinDivertGetParam")
+	if err != nil {
+		return err
+	}
 
-	d.HelperCompileFilterProc = d.MustFindProc("WinDivertHelperCompileFilter")
-	d.HelperEvalFilterProc = d.MustFindProc("WinDivertHelperEvalFilter")
-	d.HelperFormatFilterProc = d.MustFindProc("WinDivertHelperFormatFilter")
+	d.HelperCompileFilterProc, err = d.FindProc("WinDivertHelperCompileFilter")
+	if err != nil {
+		return err
+	}
+	d.HelperEvalFilterProc, err = d.FindProc("WinDivertHelperEvalFilter")
+	if err != nil {
+		return err
+	}
+	d.HelperFormatFilterProc, err = d.FindProc("WinDivertHelperFormatFilter")
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func SetPath(dllPath string) (err error) {
-	_DLLPath = dllPath
+	_dllPath = dllPath
 
-	divert.DLL, err = windows.LoadDLL(_DLLPath)
+	divert.DLL, err = windows.LoadDLL(_dllPath)
 	if err != nil {
 		return err
 	} else {
-		divert.init()
-		return nil
+		return divert.init()
 	}
 }
 
@@ -68,7 +103,6 @@ func SetLib(lib *windows.DLL) error {
 		once.Do(func() {})
 
 		divert.DLL = lib
-		divert.init()
-		return nil
+		return divert.init()
 	}
 }

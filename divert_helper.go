@@ -5,17 +5,8 @@ import (
 	"unsafe"
 )
 
-// var (
-// 	divertHelperCompileFilterProc = divert.MustFindProc("WinDivertHelperCompileFilter")
-// 	divertHelperEvalFilterProc    = divert.MustFindProc("WinDivertHelperEvalFilter")
-// 	divertHelperFormatFilterProc  = divert.MustFindProc("WinDivertHelperFormatFilter")
-// )
-
-// Deprecated: un-understandable
-func WinDivertHelperCompileFilter(filter string, layer Layer) (string, error) {
+func HelperCompileFilter(filter string, layer Layer) (string, error) {
 	var buf [1024]uint8
-	var pErrorStr *uint8
-	var errorPos uint32
 
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
@@ -26,16 +17,22 @@ func WinDivertHelperCompileFilter(filter string, layer Layer) (string, error) {
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)),
-		uintptr(unsafe.Pointer(&pErrorStr)),
-		uintptr(unsafe.Pointer(&errorPos)),
+		0,
+		0,
 	)
 	if r1 == 0 {
 		return "", err
 	}
-	return string(buf[:]), nil
+
+	for i, v := range buf {
+		if v == 0 {
+			return string(buf[:i]), nil
+		}
+	}
+	return "", nil
 }
 
-func WinDivertHelperEvalFilter(filter string, packet []byte, addr *Address) (bool, error) {
+func HelperEvalFilter(filter string, packet []byte, addr *Address) (bool, error) {
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
 		return false, err
@@ -52,7 +49,7 @@ func WinDivertHelperEvalFilter(filter string, packet []byte, addr *Address) (boo
 	return true, nil
 }
 
-func WinDivertHelperFormatFilter(filter string, layer Layer) (string, error) {
+func HelperFormatFilter(filter string, layer Layer) (string, error) {
 	var buf [1024]uint8
 
 	pFilter, err := syscall.BytePtrFromString(filter)

@@ -9,18 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// var (
-// 	divertOpenProc     = divert.MustFindProc("WinDivertOpen")
-// 	divertRecvProc     = divert.MustFindProc("WinDivertRecv")
-// 	divertRecvExProc   = divert.MustFindProc("WinDivertRecvEx")
-// 	divertSendProc     = divert.MustFindProc("WinDivertSend")
-// 	divertSendExProc   = divert.MustFindProc("WinDivertSendEx")
-// 	divertShutdownProc = divert.MustFindProc("WinDivertShutdown")
-// 	divertCloseProc    = divert.MustFindProc("WinDivertClose")
-// 	divertSetParamProc = divert.MustFindProc("WinDivertSetParam")
-// 	divertGetParamProc = divert.MustFindProc("WinDivertGetParam")
-// )
-
 type Layer uint8
 
 const (
@@ -37,6 +25,7 @@ type Address struct {
 	Layer // Packet's layer.
 	Event // Packet event.
 
+	// 0 flag is true
 	// UINT32 Sniffed : 1;                   /* Packet was sniffed? */
 	// UINT32 Outbound : 1;                  /* Packet is outound? */
 	// UINT32 Loopback : 1;                  /* Packet is loopback? */
@@ -57,48 +46,6 @@ type Address struct {
 	reserved3 [64]byte
 }
 
-type Flags uint8
-
-func (f Flags) Sniffed() bool {
-	return f&0b00000001 != 0b00000001
-}
-
-func (f Flags) Outbound() bool {
-	return f&0b00000010 != 0b00000010
-}
-
-func (f *Flags) SetOutbound(out bool) {
-	if out {
-		*f = *f | 0b00000010
-	} else {
-		*f = *f & 0b11111101
-	}
-}
-
-func (f Flags) Loopback() bool {
-	return f&0b00000100 != 0b00000100
-}
-
-func (f Flags) Impostor() bool {
-	return f&0b00001000 != 0b00001000
-}
-
-func (f Flags) IPv6() bool {
-	return f&0b00010000 != 0b00010000
-}
-
-func (f Flags) IPChecksum() bool {
-	return f&0b00100000 != 0b00100000
-}
-
-func (f Flags) TCPChecksum() bool {
-	return f&0b01000000 != 0b01000000
-}
-
-func (f Flags) UDPChecksum() bool {
-	return f&0b10000000 != 0b10000000
-}
-
 func (a *Address) Network() *DATA_NETWORK {
 	return (*DATA_NETWORK)(unsafe.Pointer(&a.reserved3[0]))
 }
@@ -110,6 +57,48 @@ func (a *Address) Socket() *DATA_SOCKET {
 }
 func (a *Address) Reflect() *DATA_REFLECT {
 	return (*DATA_REFLECT)(unsafe.Pointer(&a.reserved3[0]))
+}
+
+type Flags uint8
+
+func (f Flags) Sniffed() bool {
+	return f&0b00000001 == 0b00000001
+}
+
+func (f Flags) Outbound() bool {
+	return f&0b00000010 == 0b00000010
+}
+
+func (f *Flags) SetOutbound(out bool) {
+	if out {
+		*f = *f & 0b11111101
+	} else {
+		*f = *f | 0b00000010
+	}
+}
+
+func (f Flags) Loopback() bool {
+	return f&0b00000100 == 0b00000100
+}
+
+func (f Flags) Impostor() bool {
+	return f&0b00001000 == 0b00001000
+}
+
+func (f Flags) IPv6() bool {
+	return f&0b00010000 == 0b00010000
+}
+
+func (f Flags) IPChecksum() bool {
+	return f&0b00100000 == 0b00100000
+}
+
+func (f Flags) TCPChecksum() bool {
+	return f&0b01000000 == 0b01000000
+}
+
+func (f Flags) UDPChecksum() bool {
+	return f&0b10000000 == 0b10000000
 }
 
 type DATA_NETWORK struct {
@@ -133,7 +122,6 @@ type DATA_FLOW struct {
 func (d *DATA_FLOW) LocalAddr() netip.Addr {
 	if d.localAddr[3] == 0 && d.localAddr[2] == 0 && d.localAddr[1] == 0x0000FFFF {
 		// ipv4
-
 		_v := *(*[4]byte)(unsafe.Pointer(&d.localAddr[0]))
 		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
 		return netip.AddrFrom4(_v)
@@ -178,25 +166,28 @@ type DATA_REFLECT struct {
 
 type Handle windows.Handle
 
-func Open(filter string, layer Layer, priority int16, flags Flag) (Handle, error) {
-	once.Do(func() { divert.init() })
+const WINDIVERT_PRIORITY_HIGHEST = 30000
 
-	const WINDIVERT_PRIORITY_HIGHEST = 30000
+func Open(filter string, layer Layer, priority int16, flags Flag) (hdl Handle, err error) {
+	once.Do(func() { err = divert.init() })
+	if err != nil {
+		return INVALID_HANDLE_VALUE, err
+	}
+
 	if priority > WINDIVERT_PRIORITY_HIGHEST || priority < -WINDIVERT_PRIORITY_HIGHEST {
-		return Handle(0), errors.New("priority out of range [-30000, 30000]")
+		return INVALID_HANDLE_VALUE, errors.New("priority out of range [-30000, 30000]")
 	}
 
 	pf, err := windows.BytePtrFromString(filter)
 	if err != nil {
-		return Handle(0), err
+		return INVALID_HANDLE_VALUE, err
 	}
 
 	r1, _, err := divert.OpenProc.Call(uintptr(unsafe.Pointer(pf)), uintptr(layer), uintptr(priority), uintptr(flags))
-	h := Handle(r1)
-	if h == INVALID_HANDLE_VALUE {
-		return Handle(0), err
+	if Handle(r1) == INVALID_HANDLE_VALUE {
+		return INVALID_HANDLE_VALUE, err
 	}
-	return h, nil
+	return Handle(r1), nil
 }
 
 func (h Handle) Recv(packet []byte) (int, Address, error) {
