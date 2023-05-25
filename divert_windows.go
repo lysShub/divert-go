@@ -211,7 +211,7 @@ func HelperEvalFilter(filter string, packet []byte, addr *Address) (bool, error)
 }
 
 func HelperFormatFilter(filter string, layer Layer) (string, error) {
-	var buf [1024]uint8
+	var buf = make([]uint8, 1024)
 
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
@@ -226,5 +226,12 @@ func HelperFormatFilter(filter string, layer Layer) (string, error) {
 	if r1 == 0 {
 		return "", err
 	}
-	return string(buf[:]), nil
+
+	for i, v := range buf {
+		if v == 0 {
+			buf = buf[0:i]
+			break
+		}
+	}
+	return string(buf), nil
 }
