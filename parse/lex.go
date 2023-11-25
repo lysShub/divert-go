@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-type Expr struct {
-	Op          string
-	Left, Right *Expr
-}
-
 func Parse(s string) {
 	l := newBPFLex(s)
 	yyParse(l)
@@ -30,23 +25,20 @@ func newBPFLex(f string) *bpfLex {
 func (l *bpfLex) Lex(y *yySymType) int {
 
 	var t = 0
-	if len(l.tokens) > 0 {
-		st := l.tokens[0]
-		l.tokens = l.tokens[1:]
+	// if len(l.tokens) > 0 {
+	// 	st := l.tokens[0]
+	// 	l.tokens = l.tokens[1:]
 
-		switch st {
-		case "+", "-", "*", "/", "=":
-			t = EQ
-			y.op = st
-		case "tcp", "udp", "ip", "1":
-			t = TCP
-			y.key = st
-		case "proto", "src", "dst":
-			t = PROTO
-			y.value = st
-		default:
-		}
-	}
+	// 	switch st {
+	// 	case "+", "-", "*", "/", "=":
+	// 		t = EQ
+	// 	case "tcp", "udp", "ip", "1":
+	// 		t = TCP
+	// 	case "proto", "src", "dst":
+	// 		t = PROTO
+	// 	default:
+	// 	}
+	// }
 	return t
 }
 
@@ -54,6 +46,6 @@ func (l *bpfLex) Error(s string) {
 	fmt.Println("ERROR:", s)
 }
 
-func (l *bpfLex) setResult(e *Expr) {
+func (l *bpfLex) setResult(e Expr) {
 	fmt.Println("setResult:", e)
 }
