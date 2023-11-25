@@ -5,7 +5,6 @@ package divert
 
 import (
 	"errors"
-	"reflect"
 	"syscall"
 	"unsafe"
 
@@ -29,7 +28,13 @@ func Open(filter string, layer Layer, priority int16, flags Flag) (hdl Handle, e
 		return INVALID_HANDLE_VALUE, err
 	}
 
-	r1, _, err := divert.OpenProc.Call(uintptr(unsafe.Pointer(pf)), uintptr(layer), uintptr(priority), uintptr(flags))
+	r1, _, err := syscall.SyscallN(
+		divert.OpenProc.Addr(),
+		uintptr(unsafe.Pointer(pf)),
+		uintptr(layer),
+		uintptr(priority),
+		uintptr(flags),
+	)
 	if Handle(r1) == INVALID_HANDLE_VALUE {
 		return INVALID_HANDLE_VALUE, err
 	}
@@ -38,19 +43,19 @@ func Open(filter string, layer Layer, priority int16, flags Flag) (hdl Handle, e
 
 func (h Handle) Recv(packet []byte) (int, Address, error) {
 	var recvLen uint32
-	var recvLenPtr unsafe.Pointer = unsafe.Pointer(&recvLen)
 	var addr Address
 
-	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
-	if sp.Len == 0 {
-		sp.Data = 0
-		recvLenPtr = nil
+	var sp, recvLenPtr uintptr
+	if len(packet) > 0 {
+		sp = uintptr(unsafe.Pointer(unsafe.SliceData(packet)))
+		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
-	r1, _, err := divert.RecvProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.RecvProc.Addr(),
 		uintptr(h),
-		sp.Data,
-		uintptr(sp.Len),
+		sp,
+		uintptr(len(packet)),
 		uintptr(recvLenPtr),
 		uintptr(unsafe.Pointer(&addr)),
 	)
@@ -70,7 +75,8 @@ func (h Handle) RecvEx(
 
 	var recvLen uint32
 	var addr Address
-	r1, _, err := divert.RecvExProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.RecvExProc.Addr(),
 		uintptr(h),
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -92,7 +98,8 @@ func (h Handle) Send(
 ) (int, error) {
 
 	var pSendLen uint32
-	r1, _, err := divert.SendProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.SendProc.Addr(),
 		uintptr(h),
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -114,7 +121,8 @@ func (h Handle) SendEx(
 	var pSendLen uint32
 	var overlapped OVERLAPPED
 
-	r1, _, err := divert.SendExProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.SendExProc.Addr(),
 		uintptr(h),
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -132,7 +140,7 @@ func (h Handle) SendEx(
 }
 
 func (h Handle) Shutdown(how SHUTDOWN) error {
-	r1, _, err := divert.ShutdownProc.Call(uintptr(h), uintptr(how))
+	r1, _, err := syscall.SyscallN(divert.ShutdownProc.Addr(), uintptr(h), uintptr(how))
 	if r1 == 0 {
 		return err
 	}
@@ -140,7 +148,7 @@ func (h Handle) Shutdown(how SHUTDOWN) error {
 }
 
 func (h Handle) Close() error {
-	r1, _, err := divert.CloseProc.Call(uintptr(h))
+	r1, _, err := syscall.SyscallN(divert.CloseProc.Addr(), uintptr(h))
 	if r1 == 0 {
 		return err
 	}
@@ -148,7 +156,7 @@ func (h Handle) Close() error {
 }
 
 func (h Handle) SetParam(param PARAM, value uint64) error {
-	r1, _, err := divert.SetParamProc.Call(uintptr(h), uintptr(param), uintptr(value))
+	r1, _, err := syscall.SyscallN(divert.SetParamProc.Addr(), uintptr(h), uintptr(param), uintptr(value))
 	if r1 == 0 {
 		return err
 	}
@@ -156,7 +164,7 @@ func (h Handle) SetParam(param PARAM, value uint64) error {
 }
 
 func (h Handle) GetParamProc(param PARAM) (value uint64, err error) {
-	r1, _, err := divert.GetParamProc.Call(uintptr(h), uintptr(param), uintptr(unsafe.Pointer(&value)))
+	r1, _, err := syscall.SyscallN(divert.GetParamProc.Addr(), uintptr(h), uintptr(param), uintptr(unsafe.Pointer(&value)))
 	if r1 == 0 {
 		return 0, err
 	}
@@ -170,7 +178,8 @@ func HelperCompileFilter(filter string, layer Layer) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	r1, _, err := divert.HelperCompileFilterProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.HelperCompileFilterProc.Addr(),
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
@@ -195,7 +204,8 @@ func HelperEvalFilter(filter string, packet []byte, addr *Address) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	r1, _, err := divert.HelperEvalFilterProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.HelperEvalFilterProc.Addr(),
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(unsafe.Pointer(&packet[0])),
 		uintptr(len(packet)),
@@ -214,7 +224,8 @@ func HelperFormatFilter(filter string, layer Layer) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	r1, _, err := divert.HelperFormatFilterProc.Call(
+	r1, _, err := syscall.SyscallN(
+		divert.HelperFormatFilterProc.Addr(),
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
