@@ -70,11 +70,10 @@ func (h Handle) RecvEx(
 
 	var recvLen uint32
 	var addr Address
-	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
 	r1, _, err := divert.RecvExProc.Call(
 		uintptr(h),
-		sp.Data,
-		uintptr(sp.Len),
+		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
+		uintptr(len(packet)),
 		uintptr(unsafe.Pointer(&recvLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(&addr)),
@@ -93,11 +92,10 @@ func (h Handle) Send(
 ) (int, error) {
 
 	var pSendLen uint32
-	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
 	r1, _, err := divert.SendProc.Call(
 		uintptr(h),
-		sp.Data,
-		uintptr(sp.Len),
+		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
+		uintptr(len(packet)),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(unsafe.Pointer(pAddr)),
 	)
@@ -115,12 +113,11 @@ func (h Handle) SendEx(
 
 	var pSendLen uint32
 	var overlapped OVERLAPPED
-	sp := (*reflect.SliceHeader)(unsafe.Pointer(&packet))
 
 	r1, _, err := divert.SendExProc.Call(
 		uintptr(h),
-		sp.Data,
-		uintptr(sp.Len),
+		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
+		uintptr(len(packet)),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(pAddr)),
