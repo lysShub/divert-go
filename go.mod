@@ -1,10 +1,12 @@
 module github.com/lysShub/go-divert
 
-go 1.20
+go 1.21.1
+
+toolchain go1.21.3
 
 require (
 	github.com/stretchr/testify v1.8.3
-	golang.org/x/sys v0.6.0
+	golang.org/x/sys v0.13.0
 )
 
 require (
