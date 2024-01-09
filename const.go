@@ -1,13 +1,5 @@
 package divert
 
-import (
-	"math"
-)
-
-const (
-	INVALID_HANDLE_VALUE = Handle(math.MaxUint)
-)
-
 type Flag uint64
 
 const (

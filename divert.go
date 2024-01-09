@@ -1,181 +1,239 @@
+//go:build windows
+// +build windows
+
 package divert
 
 import (
-	"net/netip"
+	"errors"
+	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
-type Layer uint8
-
-const (
-	LAYER_NETWORK         Layer = iota // Network layer.
-	LAYER_NETWORK_FORWARD              // Network layer (forwarded packets)
-	LAYER_FLOW                         // Flow layer.
-	LAYER_SOCKET                       // Socket layer.
-	LAYER_REFLECT                      // Reflect layer.
-)
-
-type Address struct {
-	Timestamp int64
-
-	Layer // Packet's layer.
-	Event // Packet event.
-
-	// 0 flag is true
-	// UINT32 Sniffed : 1;                   /* Packet was sniffed? */
-	// UINT32 Outbound : 1;                  /* Packet is outound? */
-	// UINT32 Loopback : 1;                  /* Packet is loopback? */
-	// UINT32 Impostor : 1;                  /* Packet is impostor? */
-	// UINT32 IPv6 : 1;                      /* Packet is IPv6? */
-	// UINT32 IPChecksum : 1;                /* Packet has valid IPv4 checksum? */
-	// UINT32 TCPChecksum : 1;               /* Packet has valid TCP checksum? */
-	// UINT32 UDPChecksum : 1;               /* Packet has valid UDP checksum? */
-	Flags
-	_ uint8
-
-	_size uint32 // Reserved2;
-
-	// DATA_NETWORK Network;   // Network layer data.
-	// DATA_FLOW Flow;         // Flow layer data.
-	// DATA_SOCKET Socket;     // Socket layer data.
-	// DATA_REFLECT Reflect;   // Reflect layer data.
-	reserved3 [64]byte
-}
-
-func (a *Address) Network() *DATA_NETWORK {
-	return (*DATA_NETWORK)(unsafe.Pointer(&a.reserved3[0]))
-}
-func (a *Address) Flow() *DATA_FLOW {
-	return (*DATA_FLOW)(unsafe.Pointer(&a.reserved3[0]))
-}
-func (a *Address) Socket() *DATA_SOCKET {
-	return (*DATA_SOCKET)(unsafe.Pointer(&a.reserved3[0]))
-}
-func (a *Address) Reflect() *DATA_REFLECT {
-	return (*DATA_REFLECT)(unsafe.Pointer(&a.reserved3[0]))
-}
-
-type Flags uint8
-
-func (f Flags) Sniffed() bool {
-	return f&0b00000001 == 0b00000001
-}
-
-func (f Flags) Outbound() bool {
-	return f&0b00000010 == 0b00000010
-}
-
-func (f *Flags) SetOutbound(out bool) {
-	if out {
-		*f = *f & 0b11111101
-	} else {
-		*f = *f | 0b00000010
+func (d *Divert) Open(filter string, layer Layer, priority int16, flags Flag) (err error) {
+	if priority > WINDIVERT_PRIORITY_HIGHEST || priority < -WINDIVERT_PRIORITY_HIGHEST {
+		return errors.New("priority out of range [-30000, 30000]")
 	}
+
+	pf, err := windows.BytePtrFromString(filter)
+	if err != nil {
+		return err
+	}
+
+	r1, _, err := syscall.SyscallN(
+		d.openProc,
+		uintptr(unsafe.Pointer(pf)),
+		uintptr(layer),
+		uintptr(priority),
+		uintptr(flags),
+	)
+	if r1 == 0 {
+		return err
+	}
+	d.handle = r1
+	return nil
 }
 
-func (f Flags) Loopback() bool {
-	return f&0b00000100 == 0b00000100
+func (d *Divert) Recv(packet []byte) (int, Address, error) {
+	var recvLen uint32
+	var addr Address
+
+	var sp, recvLenPtr uintptr
+	if len(packet) > 0 {
+		sp = uintptr(unsafe.Pointer(unsafe.SliceData(packet)))
+		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
+	}
+
+	r1, _, err := syscall.SyscallN(
+		d.recvProc,
+		d.handle,
+		sp,
+		uintptr(len(packet)),
+		uintptr(recvLenPtr),
+		uintptr(unsafe.Pointer(&addr)),
+	)
+	if r1 == 0 {
+		return 0, addr, err
+	}
+	return int(recvLen), addr, nil
 }
 
-func (f Flags) Impostor() bool {
-	return f&0b00001000 == 0b00001000
+type OVERLAPPED windows.Overlapped
+type LPOVERLAPPED *OVERLAPPED
+
+func (d *Divert) RecvEx(
+	packet []byte, flag uint64,
+	lpOverlapped LPOVERLAPPED,
+) (int, Address, error) {
+
+	var recvLen uint32
+	var addr Address
+	r1, _, err := syscall.SyscallN(
+		d.recvExProc,
+		d.handle,
+		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
+		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(&recvLen)),
+		uintptr(flag),
+		uintptr(unsafe.Pointer(&addr)),
+		uintptr(unsafe.Pointer(&addr._size)),
+		uintptr(unsafe.Pointer(lpOverlapped)),
+	)
+	if r1 == 0 {
+		return 0, addr, err
+	}
+	return int(recvLen), addr, nil
 }
 
-func (f Flags) IPv6() bool {
-	return f&0b00010000 == 0b00010000
+func (d *Divert) Send(
+	packet []byte,
+	pAddr *Address,
+) (int, error) {
+
+	var pSendLen uint32
+	r1, _, err := syscall.SyscallN(
+		d.sendProc,
+		d.handle,
+		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
+		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(&pSendLen)),
+		uintptr(unsafe.Pointer(pAddr)),
+	)
+
+	if r1 == 0 {
+		return 0, err
+	}
+	return int(pSendLen), nil
 }
 
-func (f Flags) IPChecksum() bool {
-	return f&0b00100000 == 0b00100000
+func (d *Divert) SendEx(
+	packet []byte, flag uint64,
+	pAddr *Address,
+) (int, LPOVERLAPPED, error) {
+
+	var pSendLen uint32
+	var overlapped OVERLAPPED
+
+	r1, _, err := syscall.SyscallN(
+		d.sendExProc,
+		d.handle,
+		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
+		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(&pSendLen)),
+		uintptr(flag),
+		uintptr(unsafe.Pointer(pAddr)),
+		uintptr(pAddr._size),
+		uintptr(unsafe.Pointer(&overlapped)),
+	)
+
+	if r1 == 0 {
+		return 0, nil, err
+	}
+	return int(pSendLen), &overlapped, nil
 }
 
-func (f Flags) TCPChecksum() bool {
-	return f&0b01000000 == 0b01000000
+func (d *Divert) Shutdown(how SHUTDOWN) error {
+	r1, _, err := syscall.SyscallN(d.shutdownProc, d.handle, uintptr(how))
+	if r1 == 0 {
+		return err
+	}
+	return nil
 }
 
-func (f Flags) UDPChecksum() bool {
-	return f&0b10000000 == 0b10000000
+func (d *Divert) Close() error {
+	r1, _, err := syscall.SyscallN(d.closeProc, d.handle)
+	if r1 == 0 {
+		return err
+	}
+	return nil
 }
 
-type DATA_NETWORK struct {
-	IfIdx    uint32 // Packet's interface index.
-	SubIfIdx uint32 // Packet's sub-interface index.
+func (d *Divert) SetParam(param PARAM, value uint64) error {
+	r1, _, err := syscall.SyscallN(d.setParamProc, d.handle, uintptr(param), uintptr(value))
+	if r1 == 0 {
+		return err
+	}
+	return nil
 }
 
-type DATA_FLOW struct {
-	EndpointId       uint64    // Endpoint ID.
-	ParentEndpointId uint64    // Parent endpoint ID.
-	ProcessId        uint32    // Process ID.
-	localAddr        [4]uint32 // Local address.
-	remoteAddr       [4]uint32 // Remote address.
-	LocalPort        uint16    // Local port.
-	RemotePort       uint16    // Remote port.
-	Protocol         Proto     // Protocol.
-
-	ipv6 bool
+func (d *Divert) GetParamProc(param PARAM) (value uint64, err error) {
+	r1, _, err := syscall.SyscallN(d.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
+	if r1 == 0 {
+		return 0, err
+	}
+	return value, nil
 }
 
-func (d *DATA_FLOW) LocalAddr() netip.Addr {
-	if d.localAddr[3] == 0 && d.localAddr[2] == 0 && d.localAddr[1] == 0x0000FFFF {
-		// ipv4
-		_v := *(*[4]byte)(unsafe.Pointer(&d.localAddr[0]))
-		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
-		return netip.AddrFrom4(_v)
-	} else {
-		_v := *(*[16]byte)(unsafe.Pointer(&d.localAddr))
-		for i, j := 0, 15; i < j; i, j = i+1, j-1 {
-			_v[i], _v[j] = _v[j], _v[i]
+func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error) {
+	var buf [1024]uint8
+
+	pFilter, err := syscall.BytePtrFromString(filter)
+	if err != nil {
+		return "", err
+	}
+	r1, _, err := syscall.SyscallN(
+		d.helperCompileFilterProc,
+		uintptr(unsafe.Pointer(pFilter)),
+		uintptr(layer),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		0,
+		0,
+	)
+	if r1 == 0 {
+		return "", err
+	}
+
+	for i, v := range buf {
+		if v == 0 {
+			return string(buf[:i]), nil
 		}
-
-		return netip.AddrFrom16(_v)
 	}
+	return "", nil
 }
 
-func (d *DATA_FLOW) RemoteAddr() netip.Addr {
-	if d.remoteAddr[3] == 0 && d.remoteAddr[2] == 0 && d.remoteAddr[1] == 0x0000FFFF {
-		// ipv4
+func (d *Divert) HelperEvalFilter(filter string, packet []byte, addr *Address) (bool, error) {
+	pFilter, err := syscall.BytePtrFromString(filter)
+	if err != nil {
+		return false, err
+	}
+	r1, _, err := syscall.SyscallN(
+		d.helperEvalFilterProc,
+		uintptr(unsafe.Pointer(pFilter)),
+		uintptr(unsafe.Pointer(&packet[0])),
+		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(addr)),
+	)
+	if r1 == 0 {
+		return false, err
+	}
+	return true, nil
+}
 
-		_v := *(*[4]byte)(unsafe.Pointer(&d.remoteAddr[0]))
-		// big endian  to little endian
-		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
-		return netip.AddrFrom4(_v)
-	} else {
-		_v := *(*[16]byte)(unsafe.Pointer(&d.remoteAddr))
-		// big endian  to little endian
-		for i, j := 0, 15; i < j; i, j = i+1, j-1 {
-			_v[i], _v[j] = _v[j], _v[i]
+func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) {
+	var buf = make([]uint8, 1024)
+
+	pFilter, err := syscall.BytePtrFromString(filter)
+	if err != nil {
+		return "", err
+	}
+	r1, _, err := syscall.SyscallN(
+		d.helperFormatFilterProc,
+		uintptr(unsafe.Pointer(pFilter)),
+		uintptr(layer),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	if r1 == 0 {
+		return "", err
+	}
+
+	for i, v := range buf {
+		if v == 0 {
+			buf = buf[0:i]
+			break
 		}
-
-		return netip.AddrFrom16(_v)
 	}
+	return string(buf), nil
 }
-
-type DATA_SOCKET = DATA_FLOW
-
-type DATA_REFLECT struct {
-	Timestamp int64  // Handle open time.
-	ProcessId uint32 // Handle process ID.
-	Layer     Layer  // Handle layer.
-	Flags     uint64 // Handle flags.
-	Priority  int16  // Handle priority.
-}
-
-type PARAM uint32
-
-const (
-	QUEUE_LENGTH  PARAM = iota /* Packet queue length. */
-	QUEUE_TIME                 /* Packet queue time. */
-	QUEUE_SIZE                 /* Packet queue size. */
-	VERSION_MAJOR              /* Driver version (major). */
-	VERSION_MINOR              /* Driver version (minor). */
-)
-
-type SHUTDOWN uint32
-
-const (
-	SHUTDOWN_RECV           SHUTDOWN = iota + 1 /* Shutdown recv. */
-	SHUTDOWN_SEND                               /* Shutdown send. */
-	WINDIVERT_SHUTDOWN_BOTH                     /* Shutdown recv and send. */
-)
-
-const WINDIVERT_PRIORITY_HIGHEST = 30000
