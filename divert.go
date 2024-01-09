@@ -4,35 +4,15 @@
 package divert
 
 import (
-	"errors"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-func (d *Divert) Open(filter string, layer Layer, priority int16, flags Flag) (err error) {
-	if priority > WINDIVERT_PRIORITY_HIGHEST || priority < -WINDIVERT_PRIORITY_HIGHEST {
-		return errors.New("priority out of range [-30000, 30000]")
-	}
-
-	pf, err := windows.BytePtrFromString(filter)
-	if err != nil {
-		return err
-	}
-
-	r1, _, err := syscall.SyscallN(
-		d.openProc,
-		uintptr(unsafe.Pointer(pf)),
-		uintptr(layer),
-		uintptr(priority),
-		uintptr(flags),
-	)
-	if r1 == 0 {
-		return err
-	}
-	d.handle = r1
-	return nil
+type Divert struct {
+	dll    *DivertDLL
+	handle uintptr
 }
 
 func (d *Divert) Recv(packet []byte) (int, Address, error) {
@@ -46,7 +26,7 @@ func (d *Divert) Recv(packet []byte) (int, Address, error) {
 	}
 
 	r1, _, err := syscall.SyscallN(
-		d.recvProc,
+		d.dll.recvProc,
 		d.handle,
 		sp,
 		uintptr(len(packet)),
@@ -70,7 +50,7 @@ func (d *Divert) RecvEx(
 	var recvLen uint32
 	var addr Address
 	r1, _, err := syscall.SyscallN(
-		d.recvExProc,
+		d.dll.recvExProc,
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -93,7 +73,7 @@ func (d *Divert) Send(
 
 	var pSendLen uint32
 	r1, _, err := syscall.SyscallN(
-		d.sendProc,
+		d.dll.sendProc,
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -116,7 +96,7 @@ func (d *Divert) SendEx(
 	var overlapped OVERLAPPED
 
 	r1, _, err := syscall.SyscallN(
-		d.sendExProc,
+		d.dll.sendExProc,
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -134,7 +114,7 @@ func (d *Divert) SendEx(
 }
 
 func (d *Divert) Shutdown(how SHUTDOWN) error {
-	r1, _, err := syscall.SyscallN(d.shutdownProc, d.handle, uintptr(how))
+	r1, _, err := syscall.SyscallN(d.dll.shutdownProc, d.handle, uintptr(how))
 	if r1 == 0 {
 		return err
 	}
@@ -142,15 +122,21 @@ func (d *Divert) Shutdown(how SHUTDOWN) error {
 }
 
 func (d *Divert) Close() error {
-	r1, _, err := syscall.SyscallN(d.closeProc, d.handle)
+	r1, _, err := syscall.SyscallN(d.dll.closeProc, d.handle)
 	if r1 == 0 {
 		return err
 	}
+
+	d.dll.refsMu.Lock()
+	defer d.dll.refsMu.Unlock()
+	d.dll.refs--
+	d.dll = nil
+
 	return nil
 }
 
 func (d *Divert) SetParam(param PARAM, value uint64) error {
-	r1, _, err := syscall.SyscallN(d.setParamProc, d.handle, uintptr(param), uintptr(value))
+	r1, _, err := syscall.SyscallN(d.dll.setParamProc, d.handle, uintptr(param), uintptr(value))
 	if r1 == 0 {
 		return err
 	}
@@ -158,7 +144,7 @@ func (d *Divert) SetParam(param PARAM, value uint64) error {
 }
 
 func (d *Divert) GetParamProc(param PARAM) (value uint64, err error) {
-	r1, _, err := syscall.SyscallN(d.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
+	r1, _, err := syscall.SyscallN(d.dll.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
 	if r1 == 0 {
 		return 0, err
 	}
@@ -173,7 +159,7 @@ func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error)
 		return "", err
 	}
 	r1, _, err := syscall.SyscallN(
-		d.helperCompileFilterProc,
+		d.dll.helperCompileFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
@@ -199,7 +185,7 @@ func (d *Divert) HelperEvalFilter(filter string, packet []byte, addr *Address) (
 		return false, err
 	}
 	r1, _, err := syscall.SyscallN(
-		d.helperEvalFilterProc,
+		d.dll.helperEvalFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(unsafe.Pointer(&packet[0])),
 		uintptr(len(packet)),
@@ -219,7 +205,7 @@ func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) 
 		return "", err
 	}
 	r1, _, err := syscall.SyscallN(
-		d.helperFormatFilterProc,
+		d.dll.helperFormatFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),

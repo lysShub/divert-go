@@ -14,11 +14,11 @@ import (
 func TestCtx(t *testing.T) {
 	var f = "!loopback and tcp and remoteAddr=142.251.43.114 and remotePort=80"
 
-	d, err := divert.LoadDivert(embed.Amd64)
+	dll, err := divert.LoadDivert(embed.Amd64)
 	require.NoError(t, err)
-	defer d.Close()
+	defer dll.Release()
 
-	err = d.Open(f, divert.LAYER_NETWORK, 0, divert.FLAG_READ_ONLY)
+	d, err := dll.Open(f, divert.LAYER_NETWORK, 0, divert.FLAG_READ_ONLY)
 	require.NoError(t, err)
 
 	// fd := os.NewFile(uintptr(h), "divert")

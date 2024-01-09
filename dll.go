@@ -4,14 +4,21 @@
 package divert
 
 import (
+	"errors"
+	"sync"
+	"syscall"
+	"unsafe"
+
 	"github.com/lysShub/go-dll"
+	"golang.org/x/sys/windows"
 )
 
 // todo: support ctx
-type Divert struct {
-	handle uintptr
-
+type DivertDLL struct {
 	divertDll dll.DLL
+
+	refs   int
+	refsMu sync.Mutex
 
 	openProc     uintptr // WinDivertOpen
 	recvProc     uintptr // WinDivertRecv
@@ -28,9 +35,9 @@ type Divert struct {
 	helperFormatFilterProc  uintptr // WinDivertHelperFormatFilter
 }
 
-func LoadDivert[T string | dll.MemDLL](b T) (*Divert, error) {
+func LoadDivert[T string | dll.MemDLL](b T) (*DivertDLL, error) {
 	var err error
-	var d = &Divert{}
+	var d = &DivertDLL{}
 
 	d.divertDll, err = dll.LoadDLL(b)
 	if err == nil {
@@ -76,4 +83,46 @@ func LoadDivert[T string | dll.MemDLL](b T) (*Divert, error) {
 	}
 
 	return d, err
+}
+
+func (d *DivertDLL) Open(filter string, layer Layer, priority int16, flags Flag) (divert *Divert, err error) {
+	d.refsMu.Lock()
+	defer d.refsMu.Unlock()
+
+	if priority > WINDIVERT_PRIORITY_HIGHEST || priority < -WINDIVERT_PRIORITY_HIGHEST {
+		return nil, errors.New("priority out of range [-30000, 30000]")
+	}
+
+	pf, err := windows.BytePtrFromString(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	r1, _, err := syscall.SyscallN(
+		d.openProc,
+		uintptr(unsafe.Pointer(pf)),
+		uintptr(layer),
+		uintptr(priority),
+		uintptr(flags),
+	)
+	if r1 == 0 {
+		return nil, err
+	}
+
+	d.refs++
+	return &Divert{
+		dll:    d,
+		handle: r1,
+	}, nil
+}
+
+func (d *DivertDLL) Release() error {
+	d.refsMu.Lock()
+	defer d.refsMu.Unlock()
+
+	if d.refs == 0 {
+		return d.divertDll.Release()
+	} else {
+		return nil
+	}
 }
