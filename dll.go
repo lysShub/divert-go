@@ -40,7 +40,7 @@ func LoadDivert[T string | dll.MemDLL](b T) (*DivertDLL, error) {
 	var d = &DivertDLL{}
 
 	d.divertDll, err = dll.LoadDLL(b)
-	if err == nil {
+	if err != nil {
 		return nil, err
 	}
 
