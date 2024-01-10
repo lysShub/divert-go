@@ -35,7 +35,11 @@ type DivertDLL struct {
 	helperFormatFilterProc  uintptr // WinDivertHelperFormatFilter
 }
 
-func LoadDivert[T string | dll.MemDLL](b T) (*DivertDLL, error) {
+func LoadDivert[T string | dll.MemDLL](b T, driver T) (*DivertDLL, error) {
+	if err := driverInstall(driver); err != nil {
+		return nil, err
+	}
+
 	var err error
 	var d = &DivertDLL{}
 
@@ -82,9 +86,10 @@ func LoadDivert[T string | dll.MemDLL](b T) (*DivertDLL, error) {
 		return nil, err
 	}
 
-	return d, err
+	return d, nil
 }
 
+// Open open a WinDivert handle.
 func (d *DivertDLL) Open(filter string, layer Layer, priority int16, flags Flag) (divert *Divert, err error) {
 	d.refsMu.Lock()
 	defer d.refsMu.Unlock()
@@ -98,6 +103,7 @@ func (d *DivertDLL) Open(filter string, layer Layer, priority int16, flags Flag)
 		return nil, err
 	}
 
+	flags = flags | NO_INSTALL
 	r1, _, err := syscall.SyscallN(
 		d.openProc,
 		uintptr(unsafe.Pointer(pf)),
@@ -105,7 +111,7 @@ func (d *DivertDLL) Open(filter string, layer Layer, priority int16, flags Flag)
 		uintptr(priority),
 		uintptr(flags),
 	)
-	if r1 == 0 {
+	if r1 == 0 || r1 == uintptr(windows.InvalidHandle) {
 		return nil, err
 	}
 

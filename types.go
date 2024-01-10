@@ -21,7 +21,6 @@ type Address struct {
 	Layer // Packet's layer.
 	Event // Packet event.
 
-	// 0 flag is true
 	// UINT32 Sniffed : 1;                   /* Packet was sniffed? */
 	// UINT32 Outbound : 1;                  /* Packet is outound? */
 	// UINT32 Loopback : 1;                  /* Packet is loopback? */
@@ -111,8 +110,6 @@ type DATA_FLOW struct {
 	LocalPort        uint16    // Local port.
 	RemotePort       uint16    // Remote port.
 	Protocol         Proto     // Protocol.
-
-	ipv6 bool
 }
 
 func (d *DATA_FLOW) LocalAddr() netip.Addr {

@@ -15,7 +15,8 @@ type Divert struct {
 	handle uintptr
 }
 
-func (d *Divert) Recv(packet []byte) (int, Address, error) {
+// Recv receive (read) a packet from a WinDivert handle.
+func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 	var recvLen uint32
 	var addr Address
 
@@ -34,18 +35,16 @@ func (d *Divert) Recv(packet []byte) (int, Address, error) {
 		uintptr(unsafe.Pointer(&addr)),
 	)
 	if r1 == 0 {
-		return 0, addr, err
+		return 0, nil, err
 	}
-	return int(recvLen), addr, nil
+	return int(recvLen), &addr, nil
 }
 
-type OVERLAPPED windows.Overlapped
-type LPOVERLAPPED *OVERLAPPED
-
+// RecvEx receive (read) a packet from a WinDivert handle.
 func (d *Divert) RecvEx(
 	packet []byte, flag uint64,
-	lpOverlapped LPOVERLAPPED,
-) (int, Address, error) {
+	lpOverlapped *windows.Overlapped,
+) (int, *Address, error) {
 
 	var recvLen uint32
 	var addr Address
@@ -61,9 +60,9 @@ func (d *Divert) RecvEx(
 		uintptr(unsafe.Pointer(lpOverlapped)),
 	)
 	if r1 == 0 {
-		return 0, addr, err
+		return 0, nil, err
 	}
-	return int(recvLen), addr, nil
+	return int(recvLen), &addr, nil
 }
 
 func (d *Divert) Send(
@@ -87,13 +86,14 @@ func (d *Divert) Send(
 	return int(pSendLen), nil
 }
 
+// SendEx send (write/inject) a packet to a WinDivert handle.
 func (d *Divert) SendEx(
 	packet []byte, flag uint64,
 	pAddr *Address,
-) (int, LPOVERLAPPED, error) {
+) (int, *windows.Overlapped, error) {
 
 	var pSendLen uint32
-	var overlapped OVERLAPPED
+	var overlapped windows.Overlapped
 
 	r1, _, err := syscall.SyscallN(
 		d.dll.sendExProc,
@@ -143,7 +143,7 @@ func (d *Divert) SetParam(param PARAM, value uint64) error {
 	return nil
 }
 
-func (d *Divert) GetParamProc(param PARAM) (value uint64, err error) {
+func (d *Divert) GetParam(param PARAM) (value uint64, err error) {
 	r1, _, err := syscall.SyscallN(d.dll.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
 	if r1 == 0 {
 		return 0, err

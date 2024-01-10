@@ -3,39 +3,39 @@ package divert
 type Flag uint64
 
 const (
-	FLAG_SNIFF      Flag = 0x0001
-	FLAG_DROP       Flag = 0x0002
-	FLAG_RECV_ONLY  Flag = 0x0004
-	FLAG_READ_ONLY  Flag = FLAG_RECV_ONLY
-	FLAG_SEND_ONLY  Flag = 0x0008
-	FLAG_WRITE_ONLY Flag = FLAG_SEND_ONLY
-	FLAG_NO_INSTALL Flag = 0x0010
-	FLAG_FRAGMENTS  Flag = 0x0020
+	SNIFF      Flag = 0x0001
+	DROP       Flag = 0x0002
+	RECV_ONLY  Flag = 0x0004
+	READ_ONLY  Flag = RECV_ONLY
+	SEND_ONLY  Flag = 0x0008
+	WRITE_ONLY Flag = SEND_ONLY
+	NO_INSTALL Flag = 0x0010
+	FRAGMENTS  Flag = 0x0020
 )
 
 type Event uint8
 
 func (e Event) String() (layer string, op string) {
 	switch e {
-	case EVENT_NETWORK_PACKET:
+	case NETWORK_PACKET:
 		return "network", "packet"
-	case EVENT_FLOW_ESTABLISHED:
+	case FLOW_ESTABLISHED:
 		return "flow", "established"
-	case EVENT_FLOW_DELETED:
+	case FLOW_DELETED:
 		return "flow", "deleted"
-	case EVENT_SOCKET_BIND:
+	case SOCKET_BIND:
 		return "socket", "bind"
-	case EVENT_SOCKET_CONNECT:
+	case SOCKET_CONNECT:
 		return "socket", "connect"
-	case EVENT_SOCKET_LISTEN:
+	case SOCKET_LISTEN:
 		return "socket", "listen"
-	case EVENT_SOCKET_ACCEPT:
+	case SOCKET_ACCEPT:
 		return "socket", "accept"
-	case EVENT_SOCKET_CLOSE:
+	case SOCKET_CLOSE:
 		return "socket", "close"
-	case EVENT_REFLECT_OPEN:
+	case REFLECT_OPEN:
 		return "reflect", "open"
-	case EVENT_REFLECT_CLOSE:
+	case REFLECT_CLOSE:
 		return "reflect", "close"
 	default:
 		return "unknown", "unknown"
@@ -43,16 +43,16 @@ func (e Event) String() (layer string, op string) {
 }
 
 const (
-	EVENT_NETWORK_PACKET   Event = iota /* Network packet. */
-	EVENT_FLOW_ESTABLISHED              /* Flow established. */
-	EVENT_FLOW_DELETED                  /* Flow deleted. */
-	EVENT_SOCKET_BIND                   /* Socket bind. */
-	EVENT_SOCKET_CONNECT                /* Socket connect. */
-	EVENT_SOCKET_LISTEN                 /* Socket listen. */
-	EVENT_SOCKET_ACCEPT                 /* Socket accept. */
-	EVENT_SOCKET_CLOSE                  /* Socket close. */
-	EVENT_REFLECT_OPEN                  /* WinDivert handle opened. */
-	EVENT_REFLECT_CLOSE                 /* WinDivert handle closed. */
+	NETWORK_PACKET   Event = iota /* Network packet. */
+	FLOW_ESTABLISHED              /* Flow established. */
+	FLOW_DELETED                  /* Flow deleted. */
+	SOCKET_BIND                   /* Socket bind. */
+	SOCKET_CONNECT                /* Socket connect. */
+	SOCKET_LISTEN                 /* Socket listen. */
+	SOCKET_ACCEPT                 /* Socket accept. */
+	SOCKET_CLOSE                  /* Socket close. */
+	REFLECT_OPEN                  /* WinDivert handle opened. */
+	REFLECT_CLOSE                 /* WinDivert handle closed. */
 )
 
 type Proto uint8
