@@ -66,9 +66,9 @@ func (f Flags) Outbound() bool {
 
 func (f *Flags) SetOutbound(out bool) {
 	if out {
-		*f = *f & 0b11111101
-	} else {
 		*f = *f | 0b00000010
+	} else {
+		*f = *f & 0b11111101
 	}
 }
 

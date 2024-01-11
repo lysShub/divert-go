@@ -56,6 +56,10 @@ func TestNetworkFlow(t *testing.T) {
 	require.True(t, locIP.Equal(fa.LocalAddr().AsSlice()), fa.LocalAddr().String())
 }
 
+func TestSend(t *testing.T) {
+	// todo
+}
+
 func TestCtx(t *testing.T) {
 	var f = "!loopback and tcp and remoteAddr=142.251.43.114 and remotePort=80"
 
