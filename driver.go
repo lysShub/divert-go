@@ -18,7 +18,7 @@ func driverInstall[T string | dll.MemDLL](b T) error {
 		if err != nil {
 			return err
 		}
-		loc, err := filepath.Abs(".")
+		loc, err := filepath.Abs("./")
 		if err != nil {
 			return err
 		}
@@ -31,18 +31,16 @@ func driverInstall[T string | dll.MemDLL](b T) error {
 	case dll.MemDLL:
 		path := filepath.Join(os.TempDir(), fmt.Sprintf("WinDivert%d.sys", unsafe.Sizeof(int(0))*8))
 
-		_, err := os.Stat(path)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		} else if err == nil {
-			if err := os.Remove(path); err != nil {
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// todo: validate existed driver is same as b
+				if err := os.WriteFile(path, b, 0666); err != nil {
+					return err
+				}
+			} else {
 				return err
 			}
 		}
-		if err := os.WriteFile(path, b, 0666); err != nil {
-			return err
-		}
-
 		return winDivertDriverInstall(path)
 	default:
 		panic("impossible")
