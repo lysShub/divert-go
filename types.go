@@ -30,9 +30,9 @@ type Address struct {
 	// UINT32 TCPChecksum : 1;               /* Packet has valid TCP checksum? */
 	// UINT32 UDPChecksum : 1;               /* Packet has valid UDP checksum? */
 	Flags
-	_ uint8
 
-	_size uint32 // Reserved2;
+	reserved1 uint8
+	reserved2 uint32
 
 	// DATA_NETWORK Network;   // Network layer data.
 	// DATA_FLOW Flow;         // Flow layer data.

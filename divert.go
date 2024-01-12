@@ -56,7 +56,7 @@ func (d *Divert) RecvEx(
 		uintptr(unsafe.Pointer(&recvLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(&addr)),
-		uintptr(unsafe.Pointer(&addr._size)),
+		0,
 		uintptr(unsafe.Pointer(lpOverlapped)),
 	)
 	if r1 == 0 {
@@ -103,7 +103,7 @@ func (d *Divert) SendEx(
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(pAddr)),
-		uintptr(pAddr._size),
+		0,
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
 
