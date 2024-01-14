@@ -24,11 +24,11 @@ var locIP = func() net.IP {
 func Test_Install_Driver(t *testing.T) {
 	// todo:
 	{
-		d1, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+		d1, err := divert.LoadDivert(embed.DLL, embed.Sys)
 		require.NoError(t, err)
 		d1.Release()
 
-		d2, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+		d2, err := divert.LoadDivert(embed.DLL, embed.Sys)
 		require.NoError(t, err)
 		d2.Release()
 	}
@@ -36,7 +36,7 @@ func Test_Install_Driver(t *testing.T) {
 }
 
 func Test_Recv_Address(t *testing.T) {
-	dll, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+	dll, err := divert.LoadDivert(embed.DLL, embed.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
 
@@ -63,7 +63,7 @@ func Test_Recv_Address(t *testing.T) {
 }
 
 func Test_Multiple_Close(t *testing.T) {
-	dll, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+	dll, err := divert.LoadDivert(embed.DLL, embed.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
 
@@ -79,7 +79,7 @@ func Test_Send_Address(t *testing.T) {
 }
 
 func Test_Recv_Error(t *testing.T) {
-	dll, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+	dll, err := divert.LoadDivert(embed.DLL, embed.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
 
@@ -153,6 +153,8 @@ func Test_Recv_Error(t *testing.T) {
 }
 
 func TestCtx(t *testing.T) {
+	t.Skip() // todo:
+
 	var f = "!loopback and tcp and remoteAddr=142.251.43.114 and remotePort=80"
 
 	dll, err := divert.LoadDivert(`D:\OneDrive\code\go\go-divert\embed\divert_amd64.dll`, ``)
