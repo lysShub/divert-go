@@ -4,6 +4,7 @@
 package divert
 
 import (
+	"net"
 	"syscall"
 	"unsafe"
 
@@ -35,7 +36,7 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 		uintptr(unsafe.Pointer(&addr)),
 	)
 	if r1 == 0 {
-		return 0, nil, err
+		return 0, nil, handleRecvErr(err)
 	}
 	return int(recvLen), &addr, nil
 }
@@ -60,9 +61,21 @@ func (d *Divert) RecvEx(
 		uintptr(unsafe.Pointer(lpOverlapped)),
 	)
 	if r1 == 0 {
-		return 0, nil, err
+		return 0, nil, handleRecvErr(err)
 	}
 	return int(recvLen), &addr, nil
+}
+
+func handleRecvErr(err syscall.Errno) error {
+	switch err {
+	case windows.ERROR_OPERATION_ABORTED, // close after Recv()
+		windows.ERROR_INVALID_HANDLE: // close before Recv()
+		return net.ErrClosed
+	case windows.ERROR_NO_DATA:
+		return nil // shutdown
+	default:
+		return err
+	}
 }
 
 func (d *Divert) Send(
@@ -124,13 +137,15 @@ func (d *Divert) Shutdown(how SHUTDOWN) error {
 func (d *Divert) Close() error {
 	r1, _, err := syscall.SyscallN(d.dll.closeProc, d.handle)
 	if r1 == 0 {
+		if err == windows.ERROR_INVALID_HANDLE {
+			return net.ErrClosed
+		}
 		return err
 	}
 
 	d.dll.refsMu.Lock()
 	defer d.dll.refsMu.Unlock()
 	d.dll.refs--
-	d.dll = nil
 
 	return nil
 }

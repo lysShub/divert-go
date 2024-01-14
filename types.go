@@ -170,9 +170,9 @@ const (
 type SHUTDOWN uint32
 
 const (
-	SHUTDOWN_RECV           SHUTDOWN = iota + 1 /* Shutdown recv. */
-	SHUTDOWN_SEND                               /* Shutdown send. */
-	WINDIVERT_SHUTDOWN_BOTH                     /* Shutdown recv and send. */
+	RECV SHUTDOWN = iota + 1 /* Shutdown recv. */
+	SEND                     /* Shutdown send. */
+	BOTH                     /* Shutdown recv and send. */
 )
 
 const WINDIVERT_PRIORITY_HIGHEST = 30000

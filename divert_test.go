@@ -1,6 +1,7 @@
 package divert_test
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"testing"
@@ -20,8 +21,8 @@ var locIP = func() net.IP {
 	return (c.LocalAddr().(*net.UDPAddr)).IP
 }()
 
-func TestNetworkInstallDriver(t *testing.T) {
-
+func Test_Install_Driver(t *testing.T) {
+	// todo:
 	{
 		d1, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
 		require.NoError(t, err)
@@ -34,30 +35,121 @@ func TestNetworkInstallDriver(t *testing.T) {
 
 }
 
-func TestNetworkFlow(t *testing.T) {
+func Test_Recv_Address(t *testing.T) {
 	dll, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
 	require.NoError(t, err)
 	defer dll.Release()
 
-	go func() {
-		time.Sleep(time.Second)
-		http.Get("www.amazon.com")
-	}()
+	{ // flow
 
-	f := "outbound and !loopback"
-	d, err := dll.Open(f, divert.LAYER_FLOW, 0, divert.READ_ONLY|divert.SNIFF)
-	require.NoError(t, err)
-	var _ = windows.ERROR_MOD_NOT_FOUND
+		go func() {
+			time.Sleep(time.Second)
+			http.Get("www.amazon.com")
+		}()
 
-	n, addr, err := d.Recv(nil)
-	require.NoError(t, err)
-	require.Zero(t, n)
-	fa := addr.Flow()
-	require.True(t, locIP.Equal(fa.LocalAddr().AsSlice()), fa.LocalAddr().String())
+		f := "outbound and !loopback"
+		d, err := dll.Open(f, divert.LAYER_FLOW, 0, divert.READ_ONLY|divert.SNIFF)
+		require.NoError(t, err)
+		var _ = windows.ERROR_MOD_NOT_FOUND
+
+		n, addr, err := d.Recv(nil)
+		require.NoError(t, err)
+		require.Zero(t, n)
+		fa := addr.Flow()
+		require.True(t, locIP.Equal(fa.LocalAddr().AsSlice()), fa.LocalAddr().String())
+	}
+
+	// todo:
 }
 
-func TestSend(t *testing.T) {
+func Test_Multiple_Close(t *testing.T) {
+	dll, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+	require.NoError(t, err)
+	defer dll.Release()
+
+	d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+	require.NoError(t, err)
+
+	require.NoError(t, d.Close())
+	require.True(t, errors.Is(d.Close(), net.ErrClosed))
+}
+
+func Test_Send_Address(t *testing.T) {
 	// todo
+}
+
+func Test_Recv_Error(t *testing.T) {
+	dll, err := divert.LoadDivert(embed.DLL64, embed.Sys64)
+	require.NoError(t, err)
+	defer dll.Release()
+
+	{ // close
+		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		require.NoError(t, err)
+
+		{
+			go func() {
+				time.Sleep(time.Second)
+				require.NoError(t, d.Close())
+			}()
+			_, _, err = d.Recv(make([]byte, 1536))
+			require.True(t, errors.Is(err, net.ErrClosed))
+		}
+	}
+
+	{ // shutdown recv
+		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		require.NoError(t, err)
+
+		{
+			go func() {
+				time.Sleep(time.Second)
+				require.NoError(t, d.Shutdown(divert.RECV))
+			}()
+			{
+				n, _, err := d.Recv(make([]byte, 1536))
+				require.NoError(t, err)
+				require.Zero(t, n)
+			}
+			{
+				n, _, err := d.Recv(make([]byte, 1536))
+				require.NoError(t, err)
+				require.Zero(t, n)
+			}
+			{
+				require.NoError(t, d.Close())
+				_, _, err = d.Recv(make([]byte, 1536))
+				require.True(t, errors.Is(err, net.ErrClosed))
+			}
+		}
+	}
+
+	{ // shutdown both
+		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		require.NoError(t, err)
+
+		{
+			go func() {
+				time.Sleep(time.Second)
+				require.NoError(t, d.Shutdown(divert.BOTH))
+			}()
+			{
+				n, _, err := d.Recv(make([]byte, 1536))
+				require.NoError(t, err)
+				require.Zero(t, n)
+			}
+			{
+				n, _, err := d.Recv(make([]byte, 1536))
+				require.NoError(t, err)
+				require.Zero(t, n)
+			}
+			{
+				require.NoError(t, d.Close())
+				_, _, err = d.Recv(make([]byte, 1536))
+				require.True(t, errors.Is(err, net.ErrClosed))
+			}
+		}
+	}
 }
 
 func TestCtx(t *testing.T) {
