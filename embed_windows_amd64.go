@@ -1,15 +1,15 @@
-package embed
+package divert
 
 import (
 	_ "embed"
 
-	"github.com/lysShub/go-dll"
+	"github.com/lysShub/dll-go"
 )
 
 // https://reqrypt.org/download/WinDivert-2.2.2-A.zip
 
-//go:embed WinDivert64.dll
+//go:embed embed/WinDivert64.dll
 var DLL dll.MemDLL
 
-//go:embed WinDivert64.sys
+//go:embed embed/WinDivert64.sys
 var Sys []byte

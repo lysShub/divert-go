@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/lysShub/go-divert"
+	"github.com/lysShub/divert-go"
 	"gvisor.dev/gvisor/pkg/tcpip/header" // go get gvisor.dev/gvisor@go
 )
 

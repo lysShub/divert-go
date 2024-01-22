@@ -7,8 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lysShub/go-divert"
-	"github.com/lysShub/go-divert/embed"
+	"github.com/lysShub/divert-go"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 )
@@ -24,11 +23,11 @@ var locIP = func() net.IP {
 func Test_Install_Driver(t *testing.T) {
 	// todo:
 	{
-		d1, err := divert.LoadDivert(embed.DLL, embed.Sys)
+		d1, err := divert.LoadDivert(divert.DLL, divert.Sys)
 		require.NoError(t, err)
 		d1.Release()
 
-		d2, err := divert.LoadDivert(embed.DLL, embed.Sys)
+		d2, err := divert.LoadDivert(divert.DLL, divert.Sys)
 		require.NoError(t, err)
 		d2.Release()
 	}
@@ -36,7 +35,7 @@ func Test_Install_Driver(t *testing.T) {
 }
 
 func Test_Recv_Address(t *testing.T) {
-	dll, err := divert.LoadDivert(embed.DLL, embed.Sys)
+	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
 
@@ -63,7 +62,7 @@ func Test_Recv_Address(t *testing.T) {
 }
 
 func Test_Multiple_Close(t *testing.T) {
-	dll, err := divert.LoadDivert(embed.DLL, embed.Sys)
+	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
 
@@ -79,7 +78,7 @@ func Test_Send_Address(t *testing.T) {
 }
 
 func Test_Recv_Error(t *testing.T) {
-	dll, err := divert.LoadDivert(embed.DLL, embed.Sys)
+	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	"github.com/lysShub/go-dll"
+	"github.com/lysShub/dll-go"
 	"golang.org/x/sys/windows"
 )
 

@@ -2,10 +2,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/ebitengine/purego v0.5.1 h1:hNunhThpOf1vzKl49v6YxIsXLhl92vbBEv1/2Ez3ZrY=
 github.com/ebitengine/purego v0.5.1/go.mod h1:ah1In8AOtksoNK6yk5z1HTJeUkC1Ez4Wk2idgGslMwQ=
-github.com/lysShub/go-dll v0.0.0-20240109061959-e17a78e77f50 h1:Zd2udfn3bpnBS8gcx+LqEeGoMMJ5OCDQpt14/+2vyuM=
-github.com/lysShub/go-dll v0.0.0-20240109061959-e17a78e77f50/go.mod h1:hgAzWdAenTIvIH20eV5pbaj4c5AxDhx2dou6B+hwhWY=
-github.com/lysShub/go-dll v0.0.0-20240122055659-632f2b27648f h1:lURBhuX6+ik7RLtpCnld7aNhF64KIVFJ33X2a4LalFY=
-github.com/lysShub/go-dll v0.0.0-20240122055659-632f2b27648f/go.mod h1:YA+rUTG9ailY7vXaE4acUyNJAMslpBpKeb2N+iEvw/A=
+github.com/lysShub/dll-go v0.0.0-20240122093239-9b8c1c27c681 h1:917hn5ISoAaz6XIojAH2Gmj5Fj8R0dhP88MSbziPsgQ=
+github.com/lysShub/dll-go v0.0.0-20240122093239-9b8c1c27c681/go.mod h1:Ww946b4py3gpmi5bGAyR6AUr3fFdalALEmk34/URCBM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.3 h1:RP3t2pwF7cMEbC1dqtB6poj3niw/9gnV4Cjg5oW5gtY=
