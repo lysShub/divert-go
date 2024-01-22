@@ -1,6 +1,6 @@
 module github.com/lysShub/go-divert
 
-go 1.21.3
+go 1.20
 
 require (
 	github.com/stretchr/testify v1.8.3
@@ -14,7 +14,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/lysShub/go-dll v0.0.0-20240109061959-e17a78e77f50
+	github.com/lysShub/go-dll v0.0.0-20240122055659-632f2b27648f
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

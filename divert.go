@@ -4,6 +4,7 @@
 package divert
 
 import (
+	"io"
 	"net"
 	"syscall"
 	"unsafe"
@@ -73,6 +74,8 @@ func handleRecvErr(err syscall.Errno) error {
 		return net.ErrClosed
 	case windows.ERROR_NO_DATA:
 		return nil // shutdown
+	case windows.ERROR_INSUFFICIENT_BUFFER:
+		return io.ErrShortBuffer
 	default:
 		return err
 	}
