@@ -35,6 +35,14 @@ type DivertDLL struct {
 	helperFormatFilterProc  uintptr // WinDivertHelperFormatFilter
 }
 
+func MustLoadDivert[T string | dll.MemDLL](b T, driver T) *DivertDLL {
+	d, err := LoadDivert(b, driver)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
 func LoadDivert[T string | dll.MemDLL](b T, driver T) (*DivertDLL, error) {
 	if err := driverInstall(driver); err != nil {
 		return nil, err
@@ -48,6 +56,11 @@ func LoadDivert[T string | dll.MemDLL](b T, driver T) (*DivertDLL, error) {
 		return nil, err
 	}
 
+	defer func() {
+		if err != nil {
+			d.Release()
+		}
+	}()
 	if d.openProc, err = d.divertDll.FindProc("WinDivertOpen"); err != nil {
 		return nil, err
 	}
