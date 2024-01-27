@@ -22,18 +22,18 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 	var recvLen uint32
 	var addr Address
 
-	var sp, recvLenPtr uintptr
+	var dataPtr, recvLenPtr uintptr
 	if len(packet) > 0 {
-		sp = uintptr(unsafe.Pointer(unsafe.SliceData(packet)))
+		dataPtr = uintptr(unsafe.Pointer(unsafe.SliceData(packet)))
 		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
 	r1, _, err := syscall.SyscallN(
 		d.dll.recvProc,
 		d.handle,
-		sp,
+		dataPtr,
 		uintptr(len(packet)),
-		uintptr(recvLenPtr),
+		recvLenPtr,
 		uintptr(unsafe.Pointer(&addr)),
 	)
 	if r1 == 0 {
@@ -149,7 +149,7 @@ func (d *Divert) Close() error {
 	d.dll.refsMu.Lock()
 	defer d.dll.refsMu.Unlock()
 	d.dll.refs--
-
+	d.handle = 0
 	return nil
 }
 
