@@ -88,12 +88,36 @@ func (f Flags) IPChecksum() bool {
 	return f&0b00100000 == 0b00100000
 }
 
+func (f *Flags) SetIPChecksum(sum bool) {
+	if sum {
+		*f = *f | 0b00100000
+	} else {
+		*f = *f & 0b11011111
+	}
+}
+
 func (f Flags) TCPChecksum() bool {
 	return f&0b01000000 == 0b01000000
 }
 
+func (f *Flags) SetTCPChecksum(sum bool) {
+	if sum {
+		*f = *f | 0b01000000
+	} else {
+		*f = *f & 0b10111111
+	}
+}
+
 func (f Flags) UDPChecksum() bool {
 	return f&0b10000000 == 0b10000000
+}
+
+func (f *Flags) SetUDPChecksum(sum bool) {
+	if sum {
+		*f = *f | 0b10000000
+	} else {
+		*f = *f & 0b01111111
+	}
 }
 
 type DATA_NETWORK struct {
