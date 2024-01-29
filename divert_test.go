@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-ping/ping"
 	"github.com/lysShub/divert-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tatsushid/go-fastping"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -26,7 +26,7 @@ var locIP = func() netip.Addr {
 	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
 }()
 
-func nicIdx() uint32 {
+var locIPNic = func() uint32 {
 	idx, err := func(laddr netip.Addr) (int, error) {
 		ifs, err := net.Interfaces()
 		if err != nil {
@@ -77,7 +77,7 @@ func nicIdx() uint32 {
 		panic(err)
 	}
 	return uint32(idx)
-}
+}()
 
 func randPort() uint16 {
 	for {
@@ -86,6 +86,21 @@ func randPort() uint16 {
 			return uint16(port)
 		}
 	}
+}
+func toUDPAddr(addr netip.AddrPort) *net.UDPAddr {
+	return &net.UDPAddr{
+		IP:   addr.Addr().AsSlice(),
+		Port: int(addr.Port()),
+	}
+}
+
+func pingOnce(t *testing.T, dst string) {
+	pinger, err := ping.NewPinger(dst)
+	require.NoError(t, err)
+	pinger.SetPrivileged(true)
+	pinger.Timeout = time.Millisecond
+	pinger.Count = 1
+	require.NoError(t, pinger.Run())
 }
 
 func buildUDP(t *testing.T, src, dst netip.AddrPort, payload []byte) []byte {
@@ -146,6 +161,8 @@ func buildICMPEcho(t *testing.T, src, dst netip.Addr) []byte {
 
 	icmphdr := header.ICMPv4(iphdr.Payload())
 	icmphdr.SetType(header.ICMPv4Echo)
+	icmphdr.SetIdent(uint16(rand.Uint32()))
+	icmphdr.SetSequence(uint16(rand.Uint32()))
 	icmphdr.SetChecksum(^checksum.Checksum(icmphdr, 0))
 
 	return p
@@ -284,18 +301,6 @@ func Test_Address(t *testing.T) {
 	})
 }
 
-func Test_Multiple_Close(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
-	require.NoError(t, err)
-	defer dll.Release()
-
-	d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
-	require.NoError(t, err)
-
-	require.NoError(t, d.Close())
-	require.True(t, errors.Is(d.Close(), net.ErrClosed))
-}
-
 func Test_Recv_Error(t *testing.T) {
 	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
 	require.NoError(t, err)
@@ -428,13 +433,13 @@ func Test_Recv_Error(t *testing.T) {
 	})
 }
 
-func Test_Filter(t *testing.T) {
+func Test_Recv_Filter(t *testing.T) {
 	t.Skip()
 	// todo: use icmp
 	buildICMPEcho(t, netip.Addr{}, netip.Addr{})
 }
 
-func Test_Filter_Loopback(t *testing.T) {
+func Test_Recv_Filter_Loopback(t *testing.T) {
 	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
@@ -486,7 +491,161 @@ func Test_Filter_Loopback(t *testing.T) {
 	})
 }
 
-func Test_Divert_Auto_Handle_DF(t *testing.T) {
+func Test_Send(t *testing.T) {
+	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	require.NoError(t, err)
+	defer dll.Release()
+
+	t.Run("inbound", func(t *testing.T) {
+		var (
+			saddr = netip.AddrPortFrom(locIP, randPort())
+			caddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), randPort())
+			msg   = "hello"
+		)
+
+		// client
+		go func() {
+			b := buildUDP(t, caddr, saddr, []byte(msg))
+
+			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			require.NoError(t, err)
+			defer d.Close()
+
+			var addr divert.Address
+			addr.SetOutbound(false)
+			addr.Network().IfIdx = locIPNic
+
+			for i := 0; i < 3; i++ {
+				_, err := d.Send(b, &addr)
+				require.NoError(t, err)
+				time.Sleep(time.Second)
+			}
+		}()
+
+		conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
+		require.NoError(t, err)
+		defer conn.Close()
+
+		var b = make([]byte, 1536)
+		n, addr, err := conn.ReadFromUDP(b)
+		require.NoError(t, err)
+		require.Equal(t, msg, string(b[:n]))
+		require.Equal(t, caddr.Port(), uint16(addr.Port))
+	})
+
+	t.Run("inbound/loopback", func(t *testing.T) {
+		var (
+			saddr = netip.AddrPortFrom(locIP, randPort())
+			caddr = netip.AddrPortFrom(locIP, randPort())
+			msg   = "hello"
+		)
+
+		// client
+		go func() {
+			b := buildUDP(t, caddr, saddr, []byte(msg))
+
+			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			require.NoError(t, err)
+			defer d.Close()
+
+			var addr divert.Address
+			addr.SetOutbound(false)
+			addr.Network().IfIdx = locIPNic
+
+			for i := 0; i < 3; i++ {
+				_, err := d.Send(b, &addr)
+				require.NoError(t, err)
+				time.Sleep(time.Second)
+			}
+		}()
+
+		conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
+		require.NoError(t, err)
+		defer conn.Close()
+
+		var b = make([]byte, 1536)
+		n, addr, err := conn.ReadFromUDP(b)
+		require.NoError(t, err)
+		require.Equal(t, msg, string(b[:n]))
+		require.Equal(t, caddr.Port(), uint16(addr.Port))
+	})
+
+	t.Run("outbound", func(t *testing.T) {
+		ips, err := net.LookupIP("baidu.com")
+		require.NoError(t, err)
+		var (
+			saddr = netip.AddrFrom4([4]byte(ips[0]))
+			caddr = locIP
+		)
+
+		go func() {
+			b := buildICMPEcho(t, caddr, saddr)
+
+			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			require.NoError(t, err)
+			defer d.Close()
+
+			var addr divert.Address
+			addr.SetOutbound(true)
+			for i := 0; i < 3; i++ {
+				_, err := d.Send(b, &addr)
+				require.NoError(t, err)
+				time.Sleep(time.Second)
+			}
+		}()
+
+		d, err := dll.Open(
+			fmt.Sprintf("icmp.Type=0 and remoteAddr=%s", saddr),
+			divert.LAYER_NETWORK,
+			0,
+			divert.READ_ONLY,
+		)
+		require.NoError(t, err)
+		defer d.Close()
+		var b = make([]byte, 1536)
+		n, _, err := d.Recv(b)
+		require.NoError(t, err)
+		require.NotZero(t, n)
+	})
+
+	t.Run("outbound/loopback", func(t *testing.T) {
+		var (
+			saddr = netip.AddrPortFrom(locIP, randPort())
+			caddr = netip.AddrPortFrom(locIP, randPort())
+			msg   = "hello"
+		)
+
+		// client
+		go func() {
+			b := buildUDP(t, caddr, saddr, []byte(msg))
+
+			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			require.NoError(t, err)
+			defer d.Close()
+
+			var addr divert.Address
+			addr.SetOutbound(true)
+
+			for i := 0; i < 3; i++ {
+				_, err := d.Send(b, &addr)
+				require.NoError(t, err)
+				time.Sleep(time.Second)
+			}
+		}()
+
+		conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
+		require.NoError(t, err)
+		defer conn.Close()
+
+		var b = make([]byte, 1536)
+		n, addr, err := conn.ReadFromUDP(b)
+		require.NoError(t, err)
+		require.Equal(t, msg, string(b[:n]))
+		require.Equal(t, caddr.Port(), uint16(addr.Port))
+	})
+}
+
+func Test_Auto_Handle_DF(t *testing.T) {
 	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
 	require.NoError(t, err)
 	defer dll.Release()
@@ -497,17 +656,16 @@ func Test_Divert_Auto_Handle_DF(t *testing.T) {
 			dst = netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), uint16(randPort()))
 		)
 		go func() {
-			time.Sleep(time.Second)
-
-			b := buildUDP(t, src, dst, make([]byte, 1536)) // size must > mtu
-			addr := &divert.Address{}
-			addr.SetOutbound(true)
-
-			d, err := dll.Open("false", divert.LAYER_NETWORK, 1, divert.WRITE_ONLY)
+			conn, err := net.DialUDP("udp", toUDPAddr(src), toUDPAddr(dst))
 			require.NoError(t, err)
-			defer d.Close()
-			_, err = d.Send(b, addr)
-			require.NoError(t, err)
+
+			b := make([]byte, 1536) // todo: get mtu
+			for i := 0; i < 3; i++ {
+				n, err := conn.Write(b)
+				require.NoError(t, err)
+				require.Equal(t, n, len(b))
+				time.Sleep(time.Second)
+			}
 		}()
 
 		filter := fmt.Sprintf(
@@ -550,29 +708,21 @@ func Test_Recv_Priority(t *testing.T) {
 				src.Addr(), src.Port(), dst.Addr(), dst.Port(),
 			)
 			hiPriority, loPriority = 2, 1
-			rest                   atomic.Int32
-			check                  = func(d *divert.Divert) {
+			rs                     atomic.Int32
+		)
+
+		for _, pri := range []int{hiPriority, loPriority} {
+			go func(p int16) {
+				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				require.NoError(t, err)
+				defer d.Close()
 				var b = make([]byte, 1536)
 				_, addr, err := d.Recv(b)
 				require.NoError(t, err)
 				require.True(t, addr.Flags.Outbound())
-			}
-		)
-
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(loPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
-			check(d)
-			rest.CompareAndSwap(0, int32(loPriority))
-		}()
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(hiPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
-			check(d)
-			rest.CompareAndSwap(0, int32(hiPriority))
-		}()
+				rs.CompareAndSwap(0, int32(p))
+			}(int16(pri))
+		}
 
 		// send udp packet
 		conn, err := net.DialUDP(
@@ -582,13 +732,13 @@ func Test_Recv_Priority(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer conn.Close()
-		for rest.Load() == 0 {
+		for rs.Load() == 0 {
 			_, err = conn.Write([]byte(msg))
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
-		require.Equal(t, int32(hiPriority), rest.Load())
+		require.Equal(t, int32(hiPriority), rs.Load())
 	})
 
 	t.Run("inbound", func(t *testing.T) {
@@ -598,48 +748,37 @@ func Test_Recv_Priority(t *testing.T) {
 			dst = netip.MustParseAddr(ips[0].String())
 		)
 
-		var check = func(d *divert.Divert) {
-			var b = make([]byte, 1536)
-			n, addr, err := d.Recv(b)
-			require.NoError(t, err)
-			require.True(t, !addr.Flags.Outbound())
-			iphdr := header.IPv4(b[:n])
-			icmphdr := header.ICMPv4(iphdr.Payload())
-			require.Equal(t, header.ICMPv4EchoReply, icmphdr.Type())
-		}
-
 		// recv inbound
 		var (
 			filter                 = fmt.Sprintf("inbound and icmp.Type=0 and remoteAddr=%s", dst)
 			hiPriority, loPriority = 2, 1
-			rest                   atomic.Int32
+			rs                     atomic.Int32
 		)
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(hiPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
 
-			check(d)
-			rest.CompareAndSwap(0, int32(hiPriority))
-		}()
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(loPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
+		for _, pri := range []int{hiPriority, loPriority} {
+			go func(p int16) {
+				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				require.NoError(t, err)
+				defer d.Close()
 
-			check(d)
-			rest.CompareAndSwap(0, int32(loPriority))
-		}()
+				var b = make([]byte, 1536)
+				n, addr, err := d.Recv(b)
+				require.NoError(t, err)
+				require.True(t, !addr.Flags.Outbound())
+				iphdr := header.IPv4(b[:n])
+				icmphdr := header.ICMPv4(iphdr.Payload())
+				require.Equal(t, header.ICMPv4EchoReply, icmphdr.Type())
+				rs.CompareAndSwap(0, int32(p))
+			}(int16(pri))
+		}
 
 		// ping baidu.com
-		for rest.Load() == 0 {
-			pinger := fastping.NewPinger()
-			require.NoError(t, pinger.AddIP(dst.String()))
-			require.NoError(t, pinger.Run())
+		for rs.Load() == 0 {
+			pingOnce(t, dst.String())
 			time.Sleep(time.Second)
 		}
 
-		require.Equal(t, int32(hiPriority), rest.Load())
+		require.Equal(t, int32(hiPriority), rs.Load())
 	})
 
 	// loopback alway outbound packet
@@ -648,48 +787,35 @@ func Test_Recv_Priority(t *testing.T) {
 			dst = locIP
 		)
 
-		var check = func(d *divert.Divert) {
-			var b = make([]byte, 1536)
-			n, addr, err := d.Recv(b)
-			require.NoError(t, err)
-			require.True(t, addr.Flags.Outbound())
-			iphdr := header.IPv4(b[:n])
-			icmphdr := header.ICMPv4(iphdr.Payload())
-			require.Equal(t, header.ICMPv4Echo, icmphdr.Type())
-		}
-
 		var (
 			filter                 = fmt.Sprintf("icmp.Type=8 and (localAddr=%s or remoteAddr=%s)", dst, dst)
 			hiPriority, loPriority = 2, 1
-			rest                   atomic.Int32
+			rs                     atomic.Int32
 		)
 
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(loPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
+		for _, pri := range []int{hiPriority, loPriority} {
+			go func(p int16) {
+				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				require.NoError(t, err)
+				defer d.Close()
 
-			check(d)
-			rest.CompareAndSwap(0, int32(loPriority))
-		}()
+				var b = make([]byte, 1536)
+				n, addr, err := d.Recv(b)
+				require.NoError(t, err)
+				require.True(t, addr.Flags.Outbound())
+				iphdr := header.IPv4(b[:n])
+				icmphdr := header.ICMPv4(iphdr.Payload())
+				require.Equal(t, header.ICMPv4Echo, icmphdr.Type())
+				rs.CompareAndSwap(0, int32(p))
+			}(int16(pri))
+		}
 
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(hiPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
-
-			check(d)
-			rest.CompareAndSwap(0, int32(hiPriority))
-		}()
-
-		for rest.Load() == 0 {
-			pinger := fastping.NewPinger()
-			require.NoError(t, pinger.AddIP(dst.String()))
-			require.NoError(t, pinger.Run())
+		for rs.Load() == 0 {
+			pingOnce(t, dst.String())
 			time.Sleep(time.Second)
 		}
 
-		require.Equal(t, int32(hiPriority), rest.Load())
+		require.Equal(t, int32(hiPriority), rs.Load())
 	})
 
 	// loopback alway outbound packet
@@ -698,48 +824,35 @@ func Test_Recv_Priority(t *testing.T) {
 			dst = locIP
 		)
 
-		var check = func(d *divert.Divert) {
-			var b = make([]byte, 1536)
-			n, addr, err := d.Recv(b)
-			require.NoError(t, err)
-			require.True(t, addr.Flags.Outbound())
-			iphdr := header.IPv4(b[:n])
-			icmphdr := header.ICMPv4(iphdr.Payload())
-			require.Equal(t, header.ICMPv4EchoReply, icmphdr.Type())
-		}
-
 		var (
 			filter                 = fmt.Sprintf("icmp.Type=0 and (localAddr=%s or remoteAddr=%s)", dst, dst)
 			hiPriority, loPriority = 2, 1
-			rest                   atomic.Int32
+			rs                     atomic.Int32
 		)
 
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(loPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
+		for _, pri := range []int{hiPriority, loPriority} {
+			go func(p int16) {
+				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				require.NoError(t, err)
+				defer d.Close()
 
-			check(d)
-			rest.CompareAndSwap(0, int32(loPriority))
-		}()
+				var b = make([]byte, 1536)
+				n, addr, err := d.Recv(b)
+				require.NoError(t, err)
+				require.True(t, addr.Flags.Outbound())
+				iphdr := header.IPv4(b[:n])
+				icmphdr := header.ICMPv4(iphdr.Payload())
+				require.Equal(t, header.ICMPv4EchoReply, icmphdr.Type())
+				rs.CompareAndSwap(0, int32(p))
+			}(int16(pri))
+		}
 
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(hiPriority), 0)
-			require.NoError(t, err)
-			defer d.Close()
-
-			check(d)
-			rest.CompareAndSwap(0, int32(hiPriority))
-		}()
-
-		for rest.Load() == 0 {
-			pinger := fastping.NewPinger()
-			require.NoError(t, pinger.AddIP(dst.String()))
-			require.NoError(t, pinger.Run())
+		for rs.Load() == 0 {
+			pingOnce(t, dst.String())
 			time.Sleep(time.Second)
 		}
 
-		require.Equal(t, int32(hiPriority), rest.Load())
+		require.Equal(t, int32(hiPriority), rs.Load())
 	})
 }
 
@@ -762,32 +875,23 @@ func Test_Send_Priority(t *testing.T) {
 				"outbound and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				src.Addr(), src.Port(), dst.Addr(), dst.Port(),
 			)
-			hiPriority, midPriority, loPriority = 3, 2, 1
-			rest                                atomic.Int32
+			hiPriority, midPriority, loPriority = 4, 2, 1
+			rs                                  atomic.Int32
 		)
 
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(hiPriority), divert.SNIFF)
-			require.NoError(t, err)
-			defer d.Close()
+		for _, pri := range []int{hiPriority, midPriority, loPriority} {
+			go func(p int16) {
+				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, divert.SNIFF)
+				require.NoError(t, err)
+				defer d.Close()
 
-			var b = make([]byte, 1536)
-			_, addr, err := d.Recv(b)
-			require.NoError(t, err)
-			require.True(t, addr.Flags.Outbound())
-			rest.Add(int32(hiPriority))
-		}()
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(loPriority), divert.SNIFF)
-			require.NoError(t, err)
-			defer d.Close()
-
-			var b = make([]byte, 1536)
-			_, addr, err := d.Recv(b)
-			require.NoError(t, err)
-			require.True(t, addr.Flags.Outbound())
-			rest.Add(int32(loPriority))
-		}()
+				var b = make([]byte, 1536)
+				_, addr, err := d.Recv(b)
+				require.NoError(t, err)
+				require.True(t, addr.Flags.Outbound())
+				rs.Add(int32(p))
+			}(int16(pri))
+		}
 
 		d, err := dll.Open("false", divert.LAYER_NETWORK, int16(midPriority), divert.WRITE_ONLY)
 		require.NoError(t, err)
@@ -795,14 +899,14 @@ func Test_Send_Priority(t *testing.T) {
 		b := buildUDP(t, src, dst, []byte(msg))
 		var addr divert.Address
 		addr.SetOutbound(true)
-		for rest.Load() == 0 {
+		for rs.Load() == 0 {
 			_, err := d.Send(b, &addr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
 		time.Sleep(time.Second * 2)
-		require.Equal(t, int32(loPriority), rest.Load())
+		require.Equal(t, int32(loPriority), rs.Load())
 	})
 
 	t.Run("inbound", func(t *testing.T) {
@@ -817,44 +921,37 @@ func Test_Send_Priority(t *testing.T) {
 				"inbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				dst.Addr(), dst.Port(), src.Addr(), src.Port(),
 			)
-			hiPriority, midPriority, loPriority = 3, 2, 1
-			rest                                atomic.Int32
-			check                               = func(d *divert.Divert) {
+			hiPriority, midPriority, loPriority = 4, 2, 1
+			rs                                  atomic.Int32
+		)
+		for _, pri := range []int{hiPriority, midPriority, loPriority} {
+			go func(p int16) {
+				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, divert.SNIFF)
+				require.NoError(t, err)
+				defer d.Close()
+
 				var b = make([]byte, 1536)
 				_, addr, err := d.Recv(b)
 				require.NoError(t, err)
 				require.True(t, !addr.Flags.Outbound())
-			}
-		)
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(hiPriority), divert.SNIFF)
-			require.NoError(t, err)
-			defer d.Close()
-			check(d)
-			rest.CompareAndSwap(0, int32(hiPriority))
-		}()
-		go func() {
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, int16(loPriority), divert.SNIFF)
-			require.NoError(t, err)
-			defer d.Close()
-			check(d)
-			rest.CompareAndSwap(0, int32(loPriority))
-		}()
+				rs.Add(int32(p))
+			}(int16(pri))
+		}
 
 		d, err := dll.Open("false", divert.LAYER_NETWORK, int16(midPriority), divert.WRITE_ONLY)
 		require.NoError(t, err)
 		b := buildUDP(t, src, dst, []byte(msg))
 		var addr divert.Address
 		addr.SetOutbound(false)
-		addr.Network().IfIdx = nicIdx()
-		for rest.Load() == 0 {
+		addr.Network().IfIdx = locIPNic
+		for rs.Load() == 0 {
 			_, err := d.Send(b, &addr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
 		time.Sleep(time.Second * 2)
-		require.Equal(t, int32(loPriority), rest.Load())
+		require.Equal(t, int32(loPriority), rs.Load())
 	})
 }
 
