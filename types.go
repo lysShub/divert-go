@@ -199,4 +199,4 @@ const (
 	BOTH                     /* Shutdown recv and send. */
 )
 
-const WINDIVERT_PRIORITY_HIGHEST = 30000
+const PRIORITY_HIGHEST = 30000

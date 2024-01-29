@@ -1,4 +1,4 @@
-package divert_test
+package divert
 
 import (
 	"errors"
@@ -7,15 +7,15 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"runtime"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-ping/ping"
-	"github.com/lysShub/divert-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -168,48 +168,112 @@ func buildICMPEcho(t *testing.T, src, dst netip.Addr) []byte {
 	return p
 }
 
+func TestMain(t *testing.M) {
+	refs := divert.refs.Load()
+	if refs != 0 {
+		panic("before ut not Release()")
+	}
+
+	os.Exit(t.Run())
+}
+
 func Test_Load_DLL(t *testing.T) {
 	t.Run("embed", func(t *testing.T) {
-		d1, err := divert.LoadDivert(divert.DLL, divert.Sys)
-		require.NoError(t, err)
-		d1.Release()
+		e1 := Load(DLL, Sys)
+		require.NoError(t, e1)
+		require.NoError(t, Release())
 
-		d2, err := divert.LoadDivert(divert.DLL, divert.Sys)
-		require.NoError(t, err)
-		d2.Release()
+		e2 := Load(DLL, Sys)
+		require.NoError(t, e2)
+		require.NoError(t, Release())
 	})
 
-	// todo: shutdown auto uninstall driver, need reboot to test
-
 	t.Run("file", func(t *testing.T) {
-		if runtime.GOARCH != "amd64" {
-			t.Skip()
-		}
+		e1 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
+		require.NoError(t, e1)
+		require.NoError(t, Release())
 
-		d1, err := divert.LoadDivert("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
-		require.NoError(t, err)
-		d1.Release()
-
-		d2, err := divert.LoadDivert("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
-		require.NoError(t, err)
-		d2.Release()
+		e2 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
+		require.NoError(t, e2)
+		require.NoError(t, Release())
 	})
 
 	t.Run("find-proc-faild", func(t *testing.T) {
-		if runtime.GOARCH != "amd64" {
-			t.Skip()
-		}
-
-		dll, err := divert.LoadDivert("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
 		require.NotNil(t, err)
-		require.Nil(t, dll)
 	})
+
+	t.Run("reload", func(t *testing.T) {
+		e1 := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		require.NotNil(t, e1)
+		require.NoError(t, Release())
+
+		e := Load(DLL, Sys)
+		require.NoError(t, e)
+		require.NoError(t, Release())
+	})
+
+	t.Run("muti-load", func(t *testing.T) {
+		e1 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
+		require.NoError(t, e1)
+
+		e2 := Load(DLL, Sys)
+		require.NoError(t, e2)
+
+		require.NoError(t, Release())
+	})
+
+	t.Run("relase-without-load", func(t *testing.T) {
+		require.NoError(t, Release())
+		require.NoError(t, Release())
+	})
+
+	t.Run("muti-relase", func(t *testing.T) {
+		err := Load(DLL, Sys)
+		require.NoError(t, err)
+
+		require.NoError(t, Release())
+		require.NoError(t, Release())
+	})
+
+	t.Run("release-not-close", func(t *testing.T) {
+		e1 := Load(DLL, Sys)
+		require.NoError(t, e1)
+		defer Release()
+
+		d1, e2 := Open("false", LAYER_NETWORK, 0, 0)
+		require.NoError(t, e2)
+		require.NoError(t, d1.Close())
+
+		d2, e3 := Open("false", LAYER_NETWORK, 0, 0)
+		require.NoError(t, e3)
+		defer d2.Close()
+
+		require.Error(t, Release())
+	})
+
+	t.Run("open-without-open", func(t *testing.T) {
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
+		require.Nil(t, d)
+		require.True(t, errors.Is(err, net.ErrClosed))
+	})
+
+	t.Run("open-after-release", func(t *testing.T) {
+		err := Load(DLL, Sys)
+		require.NoError(t, err)
+		require.NoError(t, Release())
+
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
+		require.Nil(t, d)
+		require.True(t, errors.Is(err, net.ErrClosed))
+	})
+
 }
 
 func Test_Address(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("flow", func(t *testing.T) {
 		go func() {
@@ -218,26 +282,24 @@ func Test_Address(t *testing.T) {
 		}()
 
 		f := "outbound and !loopback"
-		d, err := dll.Open(f, divert.LAYER_FLOW, 0, divert.READ_ONLY|divert.SNIFF)
+		d, err := Open(f, LAYER_FLOW, 0, READ_ONLY|SNIFF)
 		require.NoError(t, err)
 		defer d.Close()
 
 		n, addr, err := d.Recv(nil)
 		require.NoError(t, err)
 		require.Zero(t, n)
-		require.Equal(t, divert.LAYER_FLOW, addr.Layer)
-		require.Equal(t, divert.FLOW_ESTABLISHED, addr.Event)
+		require.Equal(t, LAYER_FLOW, addr.Layer)
+		require.Equal(t, FLOW_ESTABLISHED, addr.Event)
 		require.True(t, addr.Flags.Sniffed())
 		require.False(t, addr.Flags.Loopback())
 		require.True(t, addr.Flags.Outbound())
 		require.False(t, addr.Flags.Impostor())
 		require.False(t, addr.Flags.IPv6())
 
-		// todo: NIC Offload?
+		// todo: NIC Offload? test on C.
 		// require.True(t, addr.Flags.IPChecksum())
 		// require.True(t, addr.Flags.TCPChecksum())
-
-		// todo: test on C
 		// require.True(t, addr.Flags.UDPChecksum())
 		fa := addr.Flow()
 		require.True(t, locIP == fa.LocalAddr(), fa.LocalAddr().String())
@@ -245,7 +307,7 @@ func Test_Address(t *testing.T) {
 
 	t.Run("network/recv", func(t *testing.T) {
 		f := "loopback"
-		d, err := dll.Open(f, divert.LAYER_NETWORK, 0, divert.READ_ONLY|divert.SNIFF)
+		d, err := Open(f, LAYER_NETWORK, 0, READ_ONLY|SNIFF)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -253,8 +315,8 @@ func Test_Address(t *testing.T) {
 		n, addr, err := d.Recv(b)
 		require.NoError(t, err)
 		require.NotZero(t, n)
-		require.Equal(t, divert.LAYER_NETWORK, addr.Layer)
-		require.Equal(t, divert.NETWORK_PACKET, addr.Event)
+		require.Equal(t, LAYER_NETWORK, addr.Layer)
+		require.Equal(t, NETWORK_PACKET, addr.Event)
 		require.True(t, addr.Flags.Sniffed())
 		require.True(t, addr.Flags.Loopback())
 		require.True(t, addr.Flags.Outbound())
@@ -271,13 +333,13 @@ func Test_Address(t *testing.T) {
 
 		go func() {
 			time.Sleep(time.Second)
-			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			d, err := Open("false", LAYER_NETWORK, 0, WRITE_ONLY)
 			require.NoError(t, err)
 			defer d.Close()
 
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			var a divert.Address
+			var a Address
 			// divert considers loopback packets to be outbound only
 			a.SetOutbound(true)
 
@@ -302,12 +364,12 @@ func Test_Address(t *testing.T) {
 }
 
 func Test_Recv_Error(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("close/recv", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 		require.NoError(t, d.Close())
 
@@ -316,7 +378,7 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/close", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 
 		{
@@ -330,7 +392,7 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/close/close", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 
 		{
@@ -346,7 +408,7 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/close/close/recv", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 
 		{
@@ -369,9 +431,9 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("shutdown/recv", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
-		require.NoError(t, d.Shutdown(divert.BOTH))
+		require.NoError(t, d.Shutdown(BOTH))
 
 		n, _, err := d.Recv(make([]byte, 1536))
 		require.NoError(t, err)
@@ -379,12 +441,12 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/shutdown", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 
 		go func() {
 			time.Sleep(time.Second)
-			require.NoError(t, d.Shutdown(divert.BOTH))
+			require.NoError(t, d.Shutdown(BOTH))
 		}()
 
 		n, _, err := d.Recv(make([]byte, 1536))
@@ -393,28 +455,28 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/shutdown/shutdown", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 
 		go func() {
 			time.Sleep(time.Second)
-			require.NoError(t, d.Shutdown(divert.BOTH))
+			require.NoError(t, d.Shutdown(BOTH))
 		}()
 
 		n, _, err := d.Recv(make([]byte, 1536))
 		require.NoError(t, err)
 		require.Zero(t, n)
 
-		require.NoError(t, d.Shutdown(divert.BOTH))
+		require.NoError(t, d.Shutdown(BOTH))
 	})
 
 	t.Run("recv/shutdown/shutdown/recv", func(t *testing.T) {
-		d, err := dll.Open("false", divert.LAYER_NETWORK, 0, 0)
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.NoError(t, err)
 
 		go func() {
 			time.Sleep(time.Second)
-			require.NoError(t, d.Shutdown(divert.BOTH))
+			require.NoError(t, d.Shutdown(BOTH))
 		}()
 
 		{
@@ -423,7 +485,7 @@ func Test_Recv_Error(t *testing.T) {
 			require.Zero(t, n)
 		}
 		{
-			require.NoError(t, d.Shutdown(divert.BOTH))
+			require.NoError(t, d.Shutdown(BOTH))
 		}
 		{
 			n, _, err := d.Recv(make([]byte, 1536))
@@ -440,9 +502,9 @@ func Test_Recv_Filter(t *testing.T) {
 }
 
 func Test_Recv_Filter_Loopback(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("recv/nic", func(t *testing.T) {
 		var (
@@ -472,7 +534,7 @@ func Test_Recv_Filter_Loopback(t *testing.T) {
 				"udp and localPort=%d and remotePort=%d",
 				caddr.Port(), saddr.Port(), // notice: local is client
 			)
-			d, err := dll.Open(filter, divert.LAYER_NETWORK, 0, divert.READ_ONLY)
+			d, err := Open(filter, LAYER_NETWORK, 0, READ_ONLY)
 			require.NoError(t, err)
 
 			var b = make([]byte, 1536)
@@ -492,9 +554,9 @@ func Test_Recv_Filter_Loopback(t *testing.T) {
 }
 
 func Test_Send(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("inbound", func(t *testing.T) {
 		var (
@@ -507,11 +569,11 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			d, err := Open("false", LAYER_NETWORK, 0, WRITE_ONLY)
 			require.NoError(t, err)
 			defer d.Close()
 
-			var addr divert.Address
+			var addr Address
 			addr.SetOutbound(false)
 			addr.Network().IfIdx = locIPNic
 
@@ -544,11 +606,11 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			d, err := Open("false", LAYER_NETWORK, 0, WRITE_ONLY)
 			require.NoError(t, err)
 			defer d.Close()
 
-			var addr divert.Address
+			var addr Address
 			addr.SetOutbound(false)
 			addr.Network().IfIdx = locIPNic
 
@@ -581,11 +643,11 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildICMPEcho(t, caddr, saddr)
 
-			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			d, err := Open("false", LAYER_NETWORK, 0, WRITE_ONLY)
 			require.NoError(t, err)
 			defer d.Close()
 
-			var addr divert.Address
+			var addr Address
 			addr.SetOutbound(true)
 			for i := 0; i < 3; i++ {
 				_, err := d.Send(b, &addr)
@@ -594,11 +656,11 @@ func Test_Send(t *testing.T) {
 			}
 		}()
 
-		d, err := dll.Open(
+		d, err := Open(
 			fmt.Sprintf("icmp.Type=0 and remoteAddr=%s", saddr),
-			divert.LAYER_NETWORK,
+			LAYER_NETWORK,
 			0,
-			divert.READ_ONLY,
+			READ_ONLY,
 		)
 		require.NoError(t, err)
 		defer d.Close()
@@ -619,11 +681,11 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			d, err := dll.Open("false", divert.LAYER_NETWORK, 0, divert.WRITE_ONLY)
+			d, err := Open("false", LAYER_NETWORK, 0, WRITE_ONLY)
 			require.NoError(t, err)
 			defer d.Close()
 
-			var addr divert.Address
+			var addr Address
 			addr.SetOutbound(true)
 
 			for i := 0; i < 3; i++ {
@@ -646,9 +708,9 @@ func Test_Send(t *testing.T) {
 }
 
 func Test_Auto_Handle_DF(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("recv", func(t *testing.T) {
 		var (
@@ -673,7 +735,7 @@ func Test_Auto_Handle_DF(t *testing.T) {
 			src.Addr().String(), src.Port(), dst.Addr().String(), dst.Port(),
 		)
 
-		d, err := dll.Open(filter, divert.LAYER_NETWORK, 0, divert.READ_ONLY)
+		d, err := Open(filter, LAYER_NETWORK, 0, READ_ONLY)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -691,9 +753,9 @@ func Test_Auto_Handle_DF(t *testing.T) {
 // test priority for recv.
 // CONCLUSION: packet alway be handel by higher priority.
 func Test_Recv_Priority(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
@@ -713,7 +775,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				d, err := Open(filter, LAYER_NETWORK, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 				var b = make([]byte, 1536)
@@ -757,7 +819,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				d, err := Open(filter, LAYER_NETWORK, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -795,7 +857,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				d, err := Open(filter, LAYER_NETWORK, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -832,7 +894,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, 0)
+				d, err := Open(filter, LAYER_NETWORK, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -859,9 +921,9 @@ func Test_Recv_Priority(t *testing.T) {
 // test priority for send.
 // CONCLUSION: send packet always be handle by lower priority
 func Test_Send_Priority(t *testing.T) {
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
@@ -872,7 +934,7 @@ func Test_Send_Priority(t *testing.T) {
 
 		var (
 			filter = fmt.Sprintf(
-				"outbound and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
+				"outbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				src.Addr(), src.Port(), dst.Addr(), dst.Port(),
 			)
 			hiPriority, midPriority, loPriority = 4, 2, 1
@@ -881,7 +943,7 @@ func Test_Send_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, midPriority, loPriority} {
 			go func(p int16) {
-				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, divert.SNIFF)
+				d, err := Open(filter, LAYER_NETWORK, p, SNIFF)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -893,14 +955,13 @@ func Test_Send_Priority(t *testing.T) {
 			}(int16(pri))
 		}
 
-		d, err := dll.Open("false", divert.LAYER_NETWORK, int16(midPriority), divert.WRITE_ONLY)
+		d, err := Open("false", LAYER_NETWORK, int16(midPriority), WRITE_ONLY)
 		require.NoError(t, err)
 		defer d.Close()
-		b := buildUDP(t, src, dst, []byte(msg))
-		var addr divert.Address
+		var addr Address
 		addr.SetOutbound(true)
 		for rs.Load() == 0 {
-			_, err := d.Send(b, &addr)
+			_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), &addr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
@@ -911,7 +972,8 @@ func Test_Send_Priority(t *testing.T) {
 
 	t.Run("inbound", func(t *testing.T) {
 		var (
-			src = netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), uint16(randPort()))
+			// netip.MustParseAddr("114.114.114.114")
+			src = netip.AddrPortFrom(locIP, uint16(randPort()))
 			dst = netip.AddrPortFrom(locIP, uint16(randPort()))
 			msg = "hello"
 		)
@@ -926,7 +988,7 @@ func Test_Send_Priority(t *testing.T) {
 		)
 		for _, pri := range []int{hiPriority, midPriority, loPriority} {
 			go func(p int16) {
-				d, err := dll.Open(filter, divert.LAYER_NETWORK, p, divert.SNIFF)
+				d, err := Open(filter, LAYER_NETWORK, p, SNIFF)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -938,14 +1000,13 @@ func Test_Send_Priority(t *testing.T) {
 			}(int16(pri))
 		}
 
-		d, err := dll.Open("false", divert.LAYER_NETWORK, int16(midPriority), divert.WRITE_ONLY)
+		d, err := Open("false", LAYER_NETWORK, int16(midPriority), WRITE_ONLY)
 		require.NoError(t, err)
-		b := buildUDP(t, src, dst, []byte(msg))
-		var addr divert.Address
+		var addr Address
 		addr.SetOutbound(false)
 		addr.Network().IfIdx = locIPNic
 		for rs.Load() == 0 {
-			_, err := d.Send(b, &addr)
+			_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), &addr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
@@ -955,16 +1016,33 @@ func Test_Send_Priority(t *testing.T) {
 	})
 }
 
+func Test_Helper(t *testing.T) {
+	err := Load(DLL, Sys)
+	require.NoError(t, err)
+	defer Release()
+
+	t.Run("format/null", func(t *testing.T) {
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
+		require.NoError(t, err)
+		defer d.Close()
+
+		s, err := d.HelperFormatFilter("", LAYER_NETWORK)
+		require.True(t, errors.Is(err, windows.ERROR_INVALID_PARAMETER))
+		require.Zero(t, len(s))
+	})
+	// todo:
+}
+
 func TestCtx(t *testing.T) {
 	t.Skip() // todo: support ctx
 
 	var f = "!loopback and tcp and remoteAddr=142.251.43.114 and remotePort=80"
 
-	dll, err := divert.LoadDivert(divert.DLL, divert.Sys)
+	err := Load(DLL, Sys)
 	require.NoError(t, err)
-	defer dll.Release()
+	defer Release()
 
-	d, err := dll.Open(f, divert.LAYER_NETWORK, 0, divert.READ_ONLY)
+	d, err := Open(f, LAYER_NETWORK, 0, READ_ONLY)
 	require.NoError(t, err)
 
 	// fd := os.NewFile(uintptr(h), "divert")

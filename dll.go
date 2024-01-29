@@ -4,8 +4,9 @@
 package divert
 
 import (
-	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -13,12 +14,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// todo: support ctx
-type DivertDLL struct {
-	divertDll dll.DLL
+var divert = &struct {
+	initOnce sync.Once
+	refs     atomic.Int32
 
-	refs   int
-	refsMu sync.Mutex
+	dll dll.DLL
 
 	openProc     uintptr // WinDivertOpen
 	recvProc     uintptr // WinDivertRecv
@@ -33,82 +33,104 @@ type DivertDLL struct {
 	helperCompileFilterProc uintptr // WinDivertHelperCompileFilter
 	helperEvalFilterProc    uintptr // WinDivertHelperEvalFilter
 	helperFormatFilterProc  uintptr // WinDivertHelperFormatFilter
-}
+}{}
 
-func MustLoadDivert[T string | dll.MemDLL](b T, driver T) *DivertDLL {
-	d, err := LoadDivert(b, driver)
-	if err != nil {
+func MustLoad[T string | dll.MemDLL](dll T, driver T) {
+	if err := Load(dll, driver); err != nil {
 		panic(err)
 	}
-	return d
 }
 
-func LoadDivert[T string | dll.MemDLL](b T, driver T) (*DivertDLL, error) {
-	if err := driverInstall(driver); err != nil {
-		return nil, err
-	}
-
-	var err error
-	var d = &DivertDLL{}
-
-	d.divertDll, err = dll.LoadDLL(b)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if err != nil {
-			d.Release()
+func Load[T string | dll.MemDLL](b T, driver T) (err error) {
+	divert.initOnce.Do(func() {
+		if err = driverInstall(driver); err != nil {
+			return
 		}
-	}()
-	if d.openProc, err = d.divertDll.FindProc("WinDivertOpen"); err != nil {
-		return nil, err
-	}
-	if d.recvProc, err = d.divertDll.FindProc("WinDivertRecv"); err != nil {
-		return nil, err
-	}
-	if d.recvExProc, err = d.divertDll.FindProc("WinDivertRecvEx"); err != nil {
-		return nil, err
-	}
-	if d.sendProc, err = d.divertDll.FindProc("WinDivertSend"); err != nil {
-		return nil, err
-	}
-	if d.sendExProc, err = d.divertDll.FindProc("WinDivertSendEx"); err != nil {
-		return nil, err
-	}
-	if d.shutdownProc, err = d.divertDll.FindProc("WinDivertShutdown"); err != nil {
-		return nil, err
-	}
-	if d.closeProc, err = d.divertDll.FindProc("WinDivertClose"); err != nil {
-		return nil, err
-	}
-	if d.setParamProc, err = d.divertDll.FindProc("WinDivertSetParam"); err != nil {
-		return nil, err
-	}
-	if d.getParamProc, err = d.divertDll.FindProc("WinDivertGetParam"); err != nil {
-		return nil, err
-	}
+		if divert.dll, err = dll.LoadDLL(b); err != nil {
+			return
+		}
 
-	if d.helperCompileFilterProc, err = d.divertDll.FindProc("WinDivertHelperCompileFilter"); err != nil {
-		return nil, err
-	}
-	if d.helperEvalFilterProc, err = d.divertDll.FindProc("WinDivertHelperEvalFilter"); err != nil {
-		return nil, err
-	}
-	if d.helperFormatFilterProc, err = d.divertDll.FindProc("WinDivertHelperFormatFilter"); err != nil {
-		return nil, err
-	}
+		if divert.openProc, err = divert.dll.FindProc("WinDivertOpen"); err != nil {
+			return
+		}
+		if divert.recvProc, err = divert.dll.FindProc("WinDivertRecv"); err != nil {
+			return
+		}
+		if divert.recvExProc, err = divert.dll.FindProc("WinDivertRecvEx"); err != nil {
+			return
+		}
+		if divert.sendProc, err = divert.dll.FindProc("WinDivertSend"); err != nil {
+			return
+		}
+		if divert.sendExProc, err = divert.dll.FindProc("WinDivertSendEx"); err != nil {
+			return
+		}
+		if divert.shutdownProc, err = divert.dll.FindProc("WinDivertShutdown"); err != nil {
+			return
+		}
+		if divert.closeProc, err = divert.dll.FindProc("WinDivertClose"); err != nil {
+			return
+		}
+		if divert.setParamProc, err = divert.dll.FindProc("WinDivertSetParam"); err != nil {
+			return
+		}
+		if divert.getParamProc, err = divert.dll.FindProc("WinDivertGetParam"); err != nil {
+			return
+		}
 
-	return d, nil
+		if divert.helperCompileFilterProc, err = divert.dll.FindProc("WinDivertHelperCompileFilter"); err != nil {
+			return
+		}
+		if divert.helperEvalFilterProc, err = divert.dll.FindProc("WinDivertHelperEvalFilter"); err != nil {
+			return
+		}
+		if divert.helperFormatFilterProc, err = divert.dll.FindProc("WinDivertHelperFormatFilter"); err != nil {
+			return
+		}
+	})
+
+	if err != nil {
+		divert.initOnce = sync.Once{}
+	}
+	return err
+}
+
+func Release() error {
+	if divert.refs.CompareAndSwap(0, -1) {
+		if divert.dll == nil { // not Load before
+			divert.refs.Store(0)
+			return nil
+		}
+
+		err := divert.dll.Release()
+		if err == nil {
+			divert = &struct {
+				initOnce                sync.Once
+				refs                    atomic.Int32
+				dll                     dll.DLL
+				openProc                uintptr
+				recvProc                uintptr
+				recvExProc              uintptr
+				sendProc                uintptr
+				sendExProc              uintptr
+				shutdownProc            uintptr
+				closeProc               uintptr
+				setParamProc            uintptr
+				getParamProc            uintptr
+				helperCompileFilterProc uintptr
+				helperEvalFilterProc    uintptr
+				helperFormatFilterProc  uintptr
+			}{}
+		}
+		return err
+	}
+	return fmt.Errorf("cannot release divert in use")
 }
 
 // Open open a WinDivert handle.
-func (d *DivertDLL) Open(filter string, layer Layer, priority int16, flags Flag) (divert *Divert, err error) {
-	d.refsMu.Lock()
-	defer d.refsMu.Unlock()
-
-	if priority > WINDIVERT_PRIORITY_HIGHEST || priority < -WINDIVERT_PRIORITY_HIGHEST {
-		return nil, errors.New("priority out of range [-30000, 30000]")
+func Open(filter string, layer Layer, priority int16, flags Flag) (*Divert, error) {
+	if priority > PRIORITY_HIGHEST || priority < -PRIORITY_HIGHEST {
+		return nil, fmt.Errorf("priority out of range [-%d, %d]", PRIORITY_HIGHEST, PRIORITY_HIGHEST)
 	}
 
 	pf, err := windows.BytePtrFromString(filter)
@@ -117,31 +139,19 @@ func (d *DivertDLL) Open(filter string, layer Layer, priority int16, flags Flag)
 	}
 
 	flags = flags | NO_INSTALL
-	r1, _, err := syscall.SyscallN(
-		d.openProc,
+	r1, _, e := syscallN(
+		divert.openProc,
 		uintptr(unsafe.Pointer(pf)),
 		uintptr(layer),
 		uintptr(priority),
 		uintptr(flags),
 	)
-	if r1 == 0 || r1 == uintptr(windows.InvalidHandle) {
-		return nil, err
+	if r1 == uintptr(syscall.InvalidHandle) || e != 0 {
+		return nil, handleErr(e)
 	}
 
-	d.refs++
+	divert.refs.Add(1)
 	return &Divert{
-		dll:    d,
 		handle: r1,
 	}, nil
-}
-
-func (d *DivertDLL) Release() error {
-	d.refsMu.Lock()
-	defer d.refsMu.Unlock()
-
-	if d.refs == 0 {
-		return d.divertDll.Release()
-	} else {
-		return nil
-	}
 }

@@ -6,6 +6,7 @@ package divert
 import (
 	"io"
 	"net"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -13,8 +14,39 @@ import (
 )
 
 type Divert struct {
-	dll    *DivertDLL
 	handle uintptr
+}
+
+func intbool[T uintptr | int](v T) bool {
+	return v != 0
+}
+
+func handleErr(err syscall.Errno) error {
+	switch err {
+	case windows.ERROR_OPERATION_ABORTED, // close after Recv()
+		windows.ERROR_INVALID_HANDLE: // close before Recv()
+		return net.ErrClosed
+	case windows.ERROR_NO_DATA:
+		return nil // shutdown
+	case windows.ERROR_INSUFFICIENT_BUFFER:
+		return io.ErrShortBuffer
+	default:
+		if err == 0 {
+			return syscall.EINVAL
+		}
+		return err
+	}
+}
+
+func (d *Divert) Close() error {
+	old := atomic.SwapUintptr(&d.handle, 0)
+	r1, _, err := syscallN(divert.closeProc, old)
+	if !intbool(r1) {
+		return handleErr(err)
+	}
+
+	divert.refs.Add(-1)
+	return nil
 }
 
 // Recv receive (read) a packet from a WinDivert handle.
@@ -28,16 +60,16 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
-	r1, _, err := syscall.SyscallN(
-		d.dll.recvProc,
+	r1, _, err := syscallN(
+		divert.recvProc,
 		d.handle,
 		dataPtr,
 		uintptr(len(packet)),
 		recvLenPtr,
 		uintptr(unsafe.Pointer(&addr)),
 	)
-	if r1 == 0 {
-		return 0, nil, handleRecvErr(err)
+	if !intbool(r1) {
+		return 0, nil, handleErr(err)
 	}
 	return int(recvLen), &addr, nil
 }
@@ -50,8 +82,8 @@ func (d *Divert) RecvEx(
 
 	var recvLen uint32
 	var addr Address
-	r1, _, err := syscall.SyscallN(
-		d.dll.recvExProc,
+	r1, _, err := syscallN(
+		divert.recvExProc,
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -61,24 +93,10 @@ func (d *Divert) RecvEx(
 		0,
 		uintptr(unsafe.Pointer(lpOverlapped)),
 	)
-	if r1 == 0 {
-		return 0, nil, handleRecvErr(err)
+	if !intbool(r1) {
+		return 0, nil, handleErr(err)
 	}
 	return int(recvLen), &addr, nil
-}
-
-func handleRecvErr(err syscall.Errno) error {
-	switch err {
-	case windows.ERROR_OPERATION_ABORTED, // close after Recv()
-		windows.ERROR_INVALID_HANDLE: // close before Recv()
-		return net.ErrClosed
-	case windows.ERROR_NO_DATA:
-		return nil // shutdown
-	case windows.ERROR_INSUFFICIENT_BUFFER:
-		return io.ErrShortBuffer
-	default:
-		return err
-	}
 }
 
 func (d *Divert) Send(
@@ -87,17 +105,16 @@ func (d *Divert) Send(
 ) (int, error) {
 
 	var pSendLen uint32
-	r1, _, err := syscall.SyscallN(
-		d.dll.sendProc,
+	r1, _, err := syscallN(
+		divert.sendProc,
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(unsafe.Pointer(pAddr)),
 	)
-
-	if r1 == 0 {
-		return 0, err
+	if !intbool(r1) {
+		return 0, handleErr(err)
 	}
 	return int(pSendLen), nil
 }
@@ -111,8 +128,8 @@ func (d *Divert) SendEx(
 	var pSendLen uint32
 	var overlapped windows.Overlapped
 
-	r1, _, err := syscall.SyscallN(
-		d.dll.sendExProc,
+	r1, _, err := syscallN(
+		divert.sendExProc,
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
 		uintptr(len(packet)),
@@ -122,62 +139,46 @@ func (d *Divert) SendEx(
 		0,
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
-
-	if r1 == 0 {
-		return 0, nil, err
+	if !intbool(r1) {
+		return 0, nil, handleErr(err)
 	}
-	return int(pSendLen), &overlapped, nil
+
+	return int(pSendLen), &overlapped, err
 }
 
 func (d *Divert) Shutdown(how SHUTDOWN) error {
-	r1, _, err := syscall.SyscallN(d.dll.shutdownProc, d.handle, uintptr(how))
-	if r1 == 0 {
-		return err
+	r1, _, err := syscallN(divert.shutdownProc, d.handle, uintptr(how))
+	if !intbool(r1) {
+		return handleErr(err)
 	}
-	return nil
-}
-
-func (d *Divert) Close() error {
-	r1, _, err := syscall.SyscallN(d.dll.closeProc, d.handle)
-	if r1 == 0 {
-		if err == windows.ERROR_INVALID_HANDLE {
-			return net.ErrClosed
-		}
-		return err
-	}
-
-	d.dll.refsMu.Lock()
-	defer d.dll.refsMu.Unlock()
-	d.dll.refs--
-	d.handle = 0
 	return nil
 }
 
 func (d *Divert) SetParam(param PARAM, value uint64) error {
-	r1, _, err := syscall.SyscallN(d.dll.setParamProc, d.handle, uintptr(param), uintptr(value))
-	if r1 == 0 {
-		return err
+	r1, _, err := syscallN(divert.setParamProc, d.handle, uintptr(param), uintptr(value))
+	if !intbool(r1) {
+		return handleErr(err)
 	}
 	return nil
 }
 
 func (d *Divert) GetParam(param PARAM) (value uint64, err error) {
-	r1, _, err := syscall.SyscallN(d.dll.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
-	if r1 == 0 {
-		return 0, err
+	r1, _, e := syscallN(divert.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
+	if !intbool(r1) {
+		return 0, handleErr(e)
 	}
 	return value, nil
 }
 
 func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error) {
-	var buf [1024]uint8
+	var buf = make([]byte, len(filter)+64)
 
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
 		return "", err
 	}
-	r1, _, err := syscall.SyscallN(
-		d.dll.helperCompileFilterProc,
+	r1, _, e := syscallN(
+		divert.helperCompileFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
@@ -185,8 +186,8 @@ func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error)
 		0,
 		0,
 	)
-	if r1 == 0 {
-		return "", err
+	if !intbool(r1) {
+		return "", handleErr(e)
 	}
 
 	for i, v := range buf {
@@ -202,35 +203,35 @@ func (d *Divert) HelperEvalFilter(filter string, packet []byte, addr *Address) (
 	if err != nil {
 		return false, err
 	}
-	r1, _, err := syscall.SyscallN(
-		d.dll.helperEvalFilterProc,
+	r1, _, e := syscallN(
+		divert.helperEvalFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(unsafe.Pointer(&packet[0])),
 		uintptr(len(packet)),
 		uintptr(unsafe.Pointer(addr)),
 	)
-	if r1 == 0 {
-		return false, err
+	if !intbool(r1) {
+		return false, handleErr(e)
 	}
-	return true, nil
+	return true, e
 }
 
 func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) {
-	var buf = make([]uint8, 1024)
+	var buf = make([]uint8, len(filter)+64)
 
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
 		return "", err
 	}
-	r1, _, err := syscall.SyscallN(
-		d.dll.helperFormatFilterProc,
+	r1, _, e := syscallN(
+		divert.helperFormatFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)),
 	)
-	if r1 == 0 {
-		return "", err
+	if !intbool(r1) {
+		return "", handleErr(e)
 	}
 
 	for i, v := range buf {
