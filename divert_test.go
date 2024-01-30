@@ -919,7 +919,7 @@ func Test_Recv_Priority(t *testing.T) {
 }
 
 // test priority for send.
-// CONCLUSION: send packet always be handle by lower priority
+// CONCLUSION: send packet will be handle by equal(random) or lower(always) priority
 func Test_Send_Priority(t *testing.T) {
 	err := Load(DLL, Sys)
 	require.NoError(t, err)
@@ -966,14 +966,12 @@ func Test_Send_Priority(t *testing.T) {
 			time.Sleep(time.Second)
 		}
 
-		time.Sleep(time.Second * 2)
-		require.Equal(t, int32(loPriority), rs.Load())
+		require.Contains(t, []int{loPriority, loPriority + midPriority}, int(rs.Load()))
 	})
 
 	t.Run("inbound", func(t *testing.T) {
 		var (
-			// netip.MustParseAddr("114.114.114.114")
-			src = netip.AddrPortFrom(locIP, uint16(randPort()))
+			src = netip.AddrPortFrom(netip.MustParseAddr("114.114.114.114"), uint16(randPort()))
 			dst = netip.AddrPortFrom(locIP, uint16(randPort()))
 			msg = "hello"
 		)
@@ -1011,8 +1009,44 @@ func Test_Send_Priority(t *testing.T) {
 			time.Sleep(time.Second)
 		}
 
-		time.Sleep(time.Second * 2)
-		require.Equal(t, int32(loPriority), rs.Load())
+		require.Contains(t, []int{loPriority, loPriority + midPriority}, int(rs.Load()))
+	})
+
+	t.Run("inbound/self", func(t *testing.T) {
+		var (
+			src = netip.AddrPortFrom(netip.MustParseAddr("114.114.114.114"), uint16(randPort()))
+			dst = netip.AddrPortFrom(locIP, uint16(randPort()))
+			msg = "hello"
+		)
+
+		var (
+			filter = fmt.Sprintf(
+				"inbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
+				dst.Addr(), dst.Port(), src.Addr(), src.Port(),
+			)
+		)
+		d, err := Open(filter, LAYER_NETWORK, 0, SNIFF)
+		require.NoError(t, err)
+		defer d.Close()
+
+		go func() {
+			var addr = &Address{}
+			addr.SetOutbound(false)
+			addr.Network().IfIdx = locIPNic
+			for i := 0; i < 3; i++ {
+				_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), addr)
+				require.NoError(t, err)
+				time.Sleep(time.Second)
+			}
+			require.NoError(t, d.Shutdown(BOTH))
+		}()
+
+		var b = make([]byte, 1536)
+		n, _, err := d.Recv(b)
+		require.NoError(t, err)
+
+		// can't recv self
+		require.Zero(t, n)
 	})
 }
 
