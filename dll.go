@@ -10,7 +10,7 @@ import (
 	"github.com/lysShub/dll-go"
 )
 
-var divert = &struct {
+var divert = struct {
 	refs atomic.Int32
 
 	sync.RWMutex
@@ -42,7 +42,7 @@ func Load[T string | dll.MemDLL](b T, driver T) (err error) {
 	defer divert.Unlock()
 	defer func() {
 		if err != nil {
-			resetUnLoacked()
+			resetDivertUnLock()
 		}
 	}()
 
@@ -113,26 +113,23 @@ func Release() error {
 		return err
 	}
 
-	resetUnLoacked()
+	resetDivertUnLock()
 	return nil
 }
 
-func resetUnLoacked() {
-	divert = &struct {
-		refs atomic.Int32
-		sync.RWMutex
-		dll                     dll.DLL
-		openProc                uintptr
-		recvProc                uintptr
-		recvExProc              uintptr
-		sendProc                uintptr
-		sendExProc              uintptr
-		shutdownProc            uintptr
-		closeProc               uintptr
-		setParamProc            uintptr
-		getParamProc            uintptr
-		helperCompileFilterProc uintptr
-		helperEvalFilterProc    uintptr
-		helperFormatFilterProc  uintptr
-	}{}
+func resetDivertUnLock() {
+	divert.refs.Store(0)
+	divert.dll = nil
+	divert.openProc = 0
+	divert.recvProc = 0
+	divert.recvExProc = 0
+	divert.sendProc = 0
+	divert.sendExProc = 0
+	divert.shutdownProc = 0
+	divert.closeProc = 0
+	divert.setParamProc = 0
+	divert.getParamProc = 0
+	divert.helperCompileFilterProc = 0
+	divert.helperEvalFilterProc = 0
+	divert.helperFormatFilterProc = 0
 }
