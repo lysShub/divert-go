@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-ping/ping"
+	"github.com/lysShub/dll-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -198,22 +199,39 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, Release())
 	})
 
-	t.Run("find-proc-faild", func(t *testing.T) {
+	t.Run("load-fail", func(t *testing.T) {
 		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
 		require.NotNil(t, err)
 	})
 
-	t.Run("reload", func(t *testing.T) {
+	t.Run("load-fail/open", func(t *testing.T) {
+		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		require.NotNil(t, err)
+
+		d, err := Open("false", LAYER_NETWORK, 0, 0)
+		require.True(t, errors.Is(err, os.ErrClosed))
+		require.Nil(t, d)
+	})
+
+	t.Run("load-fail/release", func(t *testing.T) {
+		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		require.NotNil(t, err)
+
+		err = Release()
+		require.True(t, errors.Is(err, dll.ERR_RELEASE_DLL_NOT_LOAD))
+	})
+
+	t.Run("load-fail/load", func(t *testing.T) {
 		e1 := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
 		require.NotNil(t, e1)
-		require.NoError(t, Release())
+		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
 
 		e := Load(DLL, Sys)
 		require.NoError(t, e)
 		require.NoError(t, Release())
 	})
 
-	t.Run("muti-load", func(t *testing.T) {
+	t.Run("load/load", func(t *testing.T) {
 		e1 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
 		require.NoError(t, e1)
 
@@ -223,20 +241,20 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, Release())
 	})
 
-	t.Run("relase-without-load", func(t *testing.T) {
-		require.NoError(t, Release())
-		require.NoError(t, Release())
+	t.Run("release/release", func(t *testing.T) {
+		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
+		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
 	})
 
-	t.Run("muti-relase", func(t *testing.T) {
+	t.Run("load/release/release", func(t *testing.T) {
 		err := Load(DLL, Sys)
 		require.NoError(t, err)
 
 		require.NoError(t, Release())
-		require.NoError(t, Release())
+		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
 	})
 
-	t.Run("release-not-close", func(t *testing.T) {
+	t.Run("load/open/release", func(t *testing.T) {
 		e1 := Load(DLL, Sys)
 		require.NoError(t, e1)
 		defer Release()
@@ -252,20 +270,20 @@ func Test_Load_DLL(t *testing.T) {
 		require.Error(t, Release())
 	})
 
-	t.Run("open-without-open", func(t *testing.T) {
+	t.Run("open", func(t *testing.T) {
 		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.Nil(t, d)
-		require.True(t, errors.Is(err, net.ErrClosed))
+		require.True(t, errors.Is(err, os.ErrClosed))
 	})
 
-	t.Run("open-after-release", func(t *testing.T) {
+	t.Run("load/release/open", func(t *testing.T) {
 		err := Load(DLL, Sys)
 		require.NoError(t, err)
 		require.NoError(t, Release())
 
 		d, err := Open("false", LAYER_NETWORK, 0, 0)
 		require.Nil(t, d)
-		require.True(t, errors.Is(err, net.ErrClosed))
+		require.True(t, errors.Is(err, os.ErrClosed))
 	})
 
 }
@@ -374,7 +392,7 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, d.Close())
 
 		_, _, err = d.Recv(make([]byte, 1536))
-		require.True(t, errors.Is(err, net.ErrClosed))
+		require.True(t, errors.Is(err, os.ErrClosed))
 	})
 
 	t.Run("recv/close", func(t *testing.T) {
@@ -387,7 +405,7 @@ func Test_Recv_Error(t *testing.T) {
 				require.NoError(t, d.Close())
 			}()
 			_, _, err = d.Recv(make([]byte, 1536))
-			require.True(t, errors.Is(err, net.ErrClosed))
+			require.True(t, errors.Is(err, os.ErrClosed))
 		}
 	})
 
@@ -401,9 +419,9 @@ func Test_Recv_Error(t *testing.T) {
 				require.NoError(t, d.Close())
 			}()
 			_, _, err = d.Recv(make([]byte, 1536))
-			require.True(t, errors.Is(err, net.ErrClosed))
+			require.True(t, errors.Is(err, os.ErrClosed))
 
-			require.True(t, errors.Is(d.Close(), net.ErrClosed))
+			require.True(t, errors.Is(d.Close(), os.ErrClosed))
 		}
 	})
 
@@ -418,14 +436,14 @@ func Test_Recv_Error(t *testing.T) {
 			}()
 			{
 				_, _, err = d.Recv(make([]byte, 1536))
-				require.True(t, errors.Is(err, net.ErrClosed))
+				require.True(t, errors.Is(err, os.ErrClosed))
 			}
 			{
-				require.True(t, errors.Is(d.Close(), net.ErrClosed))
+				require.True(t, errors.Is(d.Close(), os.ErrClosed))
 			}
 			{
 				_, _, err = d.Recv(make([]byte, 1536))
-				require.True(t, errors.Is(err, net.ErrClosed))
+				require.True(t, errors.Is(err, os.ErrClosed))
 			}
 		}
 	})

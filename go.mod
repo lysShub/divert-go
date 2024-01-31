@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/go-ping/ping v1.1.0
-	github.com/lysShub/dll-go v0.0.0-20240122093239-9b8c1c27c681
+	github.com/lysShub/dll-go v0.0.0-20240131092034-3f09ae5eff72
 	github.com/stretchr/testify v1.8.3
 	golang.org/x/sys v0.16.0
 	gvisor.dev/gvisor v0.0.0-20230916030846-1d82564559db

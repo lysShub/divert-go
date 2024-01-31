@@ -76,12 +76,36 @@ func (f Flags) Loopback() bool {
 	return f&0b00000100 == 0b00000100
 }
 
+func (f *Flags) SetLoopback(loop bool) {
+	if loop {
+		*f = *f | 0b00000100
+	} else {
+		*f = *f & 0b11111011
+	}
+}
+
 func (f Flags) Impostor() bool {
 	return f&0b00001000 == 0b00001000
 }
 
+func (f *Flags) SetImpostor(impostor bool) {
+	if impostor {
+		*f = *f | 0b00001000
+	} else {
+		*f = *f & 0b11110111
+	}
+}
+
 func (f Flags) IPv6() bool {
 	return f&0b00010000 == 0b00010000
+}
+
+func (f *Flags) SetIPv6(ipv6 bool) {
+	if ipv6 {
+		*f = *f | 0b00010000
+	} else {
+		*f = *f & 0b11101111
+	}
 }
 
 func (f Flags) IPChecksum() bool {

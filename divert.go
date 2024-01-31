@@ -4,8 +4,9 @@
 package divert
 
 import (
+	"fmt"
 	"io"
-	"net"
+	"os"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -25,7 +26,8 @@ func handleErr(err syscall.Errno) error {
 	switch err {
 	case windows.ERROR_OPERATION_ABORTED, // close after Recv()
 		windows.ERROR_INVALID_HANDLE: // close before Recv()
-		return net.ErrClosed
+
+		return os.ErrClosed
 	case windows.ERROR_NO_DATA:
 		return nil // shutdown
 	case windows.ERROR_INSUFFICIENT_BUFFER:
@@ -38,9 +40,42 @@ func handleErr(err syscall.Errno) error {
 	}
 }
 
+// Open open a WinDivert handle.
+func Open(filter string, layer Layer, priority int16, flags Flag) (*Divert, error) {
+	if priority > PRIORITY_HIGHEST || priority < -PRIORITY_HIGHEST {
+		return nil, fmt.Errorf("priority out of range [-%d, %d]", PRIORITY_HIGHEST, PRIORITY_HIGHEST)
+	}
+
+	pf, err := windows.BytePtrFromString(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	flags = flags | NO_INSTALL
+	divert.RLock()
+	r1, _, e := syscallN(
+		divert.openProc,
+		uintptr(unsafe.Pointer(pf)),
+		uintptr(layer),
+		uintptr(priority),
+		uintptr(flags),
+	)
+	divert.RUnlock()
+	if r1 == uintptr(syscall.InvalidHandle) || e != 0 {
+		return nil, handleErr(e)
+	}
+
+	divert.refs.Add(1)
+	return &Divert{
+		handle: r1,
+	}, nil
+}
+
 func (d *Divert) Close() error {
 	old := atomic.SwapUintptr(&d.handle, 0)
+	divert.RLock()
 	r1, _, err := syscallN(divert.closeProc, old)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return handleErr(err)
 	}
@@ -60,6 +95,7 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
+	divert.RLock()
 	r1, _, err := syscallN(
 		divert.recvProc,
 		d.handle,
@@ -68,6 +104,7 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 		recvLenPtr,
 		uintptr(unsafe.Pointer(&addr)),
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return 0, nil, handleErr(err)
 	}
@@ -82,6 +119,7 @@ func (d *Divert) RecvEx(
 
 	var recvLen uint32
 	var addr Address
+	divert.RLock()
 	r1, _, err := syscallN(
 		divert.recvExProc,
 		d.handle,
@@ -93,6 +131,7 @@ func (d *Divert) RecvEx(
 		0,
 		uintptr(unsafe.Pointer(lpOverlapped)),
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return 0, nil, handleErr(err)
 	}
@@ -105,6 +144,7 @@ func (d *Divert) Send(
 ) (int, error) {
 
 	var pSendLen uint32
+	divert.RLock()
 	r1, _, err := syscallN(
 		divert.sendProc,
 		d.handle,
@@ -113,6 +153,7 @@ func (d *Divert) Send(
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(unsafe.Pointer(pAddr)),
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return 0, handleErr(err)
 	}
@@ -128,6 +169,7 @@ func (d *Divert) SendEx(
 	var pSendLen uint32
 	var overlapped windows.Overlapped
 
+	divert.RLock()
 	r1, _, err := syscallN(
 		divert.sendExProc,
 		d.handle,
@@ -139,6 +181,7 @@ func (d *Divert) SendEx(
 		0,
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return 0, nil, handleErr(err)
 	}
@@ -147,7 +190,9 @@ func (d *Divert) SendEx(
 }
 
 func (d *Divert) Shutdown(how SHUTDOWN) error {
+	divert.RLock()
 	r1, _, err := syscallN(divert.shutdownProc, d.handle, uintptr(how))
+	divert.RUnlock()
 	if !intbool(r1) {
 		return handleErr(err)
 	}
@@ -155,7 +200,9 @@ func (d *Divert) Shutdown(how SHUTDOWN) error {
 }
 
 func (d *Divert) SetParam(param PARAM, value uint64) error {
+	divert.RLock()
 	r1, _, err := syscallN(divert.setParamProc, d.handle, uintptr(param), uintptr(value))
+	divert.RUnlock()
 	if !intbool(r1) {
 		return handleErr(err)
 	}
@@ -163,7 +210,14 @@ func (d *Divert) SetParam(param PARAM, value uint64) error {
 }
 
 func (d *Divert) GetParam(param PARAM) (value uint64, err error) {
-	r1, _, e := syscallN(divert.getParamProc, d.handle, uintptr(param), uintptr(unsafe.Pointer(&value)))
+	divert.RLock()
+	r1, _, e := syscallN(
+		divert.getParamProc,
+		d.handle,
+		uintptr(param),
+		uintptr(unsafe.Pointer(&value)),
+	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return 0, handleErr(e)
 	}
@@ -177,6 +231,7 @@ func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error)
 	if err != nil {
 		return "", err
 	}
+	divert.RLock()
 	r1, _, e := syscallN(
 		divert.helperCompileFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
@@ -186,6 +241,7 @@ func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error)
 		0,
 		0,
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return "", handleErr(e)
 	}
@@ -203,6 +259,7 @@ func (d *Divert) HelperEvalFilter(filter string, packet []byte, addr *Address) (
 	if err != nil {
 		return false, err
 	}
+	divert.RLock()
 	r1, _, e := syscallN(
 		divert.helperEvalFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
@@ -210,6 +267,7 @@ func (d *Divert) HelperEvalFilter(filter string, packet []byte, addr *Address) (
 		uintptr(len(packet)),
 		uintptr(unsafe.Pointer(addr)),
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return false, handleErr(e)
 	}
@@ -223,6 +281,7 @@ func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	divert.RLock()
 	r1, _, e := syscallN(
 		divert.helperFormatFilterProc,
 		uintptr(unsafe.Pointer(pFilter)),
@@ -230,6 +289,7 @@ func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) 
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)),
 	)
+	divert.RUnlock()
 	if !intbool(r1) {
 		return "", handleErr(e)
 	}
