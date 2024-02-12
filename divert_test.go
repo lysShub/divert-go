@@ -613,6 +613,30 @@ func Test_Recv_Ctx(t *testing.T) {
 		// t.Log(time.Since(s))
 	})
 
+	t.Run("recv-ctx", func(t *testing.T) {
+		d, err := Open("udp and remoteAddr=8.8.8.8 and remotePort=56", LAYER_NETWORK, 0, READ_ONLY)
+		require.NoError(t, err)
+
+		go func() {
+			conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 56})
+			require.NoError(t, err)
+			defer conn.Close()
+
+			time.Sleep(time.Second)
+			_, err = conn.Write([]byte("hello"))
+			require.NoError(t, err)
+		}()
+
+		var addr Address
+		var ip = make([]byte, 1536)
+		s := time.Now()
+		n, err := d.RecvCtx(context.Background(), ip, &addr)
+		require.NoError(t, err)
+		iphdr := header.IPv4(ip[:n])
+		require.Equal(t, n, int(iphdr.TotalLength()))
+		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
+		// t.Log(time.Since(s))
+	})
 }
 
 func Test_Send(t *testing.T) {

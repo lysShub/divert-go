@@ -152,8 +152,6 @@ func (d *Divert) RecvEx(
 
 func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
 	var o windows.Overlapped
-	var recvLen uint32
-
 	o.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
 		return 0, err
@@ -161,14 +159,13 @@ func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 	defer windows.Close(o.HEvent)
 
 	for {
-
 		divert.RLock()
 		r1, _, err := syscallN(
 			divert.recvExProc,
 			d.handle,
 			uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
 			uintptr(len(ip)),
-			uintptr(unsafe.Pointer(&recvLen)),
+			0, //uintptr(unsafe.Pointer(&recvLen)) // pRecvLen not work
 			0,
 			uintptr(unsafe.Pointer(&addr)),
 			0,
@@ -183,7 +180,7 @@ func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 		if e != nil {
 			return 0, e
 		} else if wfd == windows.WAIT_OBJECT_0 {
-			return int(recvLen), nil
+			return int(o.InternalHigh), nil
 		} else if wfd == uint32(windows.WAIT_TIMEOUT) {
 			select {
 			case <-ctx.Done():
