@@ -42,7 +42,7 @@ func Load[T string | dll.MemDLL](b T, driver T) (err error) {
 	defer divert.Unlock()
 	defer func() {
 		if err != nil {
-			resetDivertUnLock()
+			resetDivertLocked()
 		}
 	}()
 
@@ -113,12 +113,13 @@ func Release() error {
 		return err
 	}
 
-	resetDivertUnLock()
+	resetDivertLocked()
 	return nil
 }
 
-func resetDivertUnLock() {
+func resetDivertLocked() {
 	divert.refs.Store(0)
+	// divert.RWMutex = sync.RWMutex{}
 	divert.dll = nil
 	divert.openProc = 0
 	divert.recvProc = 0

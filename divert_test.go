@@ -1,6 +1,7 @@
 package divert
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -569,6 +570,49 @@ func Test_Recv_Filter_Loopback(t *testing.T) {
 			require.True(t, ok)
 		}
 	})
+}
+
+func Test_Recv_Ctx(t *testing.T) {
+	err := Load(DLL, Sys)
+	require.NoError(t, err)
+	defer Release()
+
+	t.Run("cancel", func(t *testing.T) {
+
+		d, err := Open("false", LAYER_NETWORK, 0, READ_ONLY)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(time.Second)
+			cancel()
+		}()
+
+		var addr Address
+		s := time.Now()
+		n, err := d.RecvCtx(ctx, make([]byte, 1536), &addr)
+		require.True(t, errors.Is(err, os.ErrDeadlineExceeded))
+		require.Zero(t, n)
+		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
+		// t.Log(time.Since(s))
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+
+		d, err := Open("false", LAYER_NETWORK, 0, READ_ONLY)
+		require.NoError(t, err)
+
+		ctx, _ := context.WithTimeout(context.Background(), time.Second)
+
+		var addr Address
+		s := time.Now()
+		n, err := d.RecvCtx(ctx, make([]byte, 1536), &addr)
+		require.True(t, errors.Is(err, os.ErrDeadlineExceeded))
+		require.Zero(t, n)
+		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
+		// t.Log(time.Since(s))
+	})
+
 }
 
 func Test_Send(t *testing.T) {

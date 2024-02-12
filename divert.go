@@ -4,11 +4,13 @@
 package divert
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -16,6 +18,16 @@ import (
 
 type Divert struct {
 	handle uintptr
+}
+
+const defaultDelay = time.Millisecond * 100
+
+var CtxCancelDelay time.Duration = defaultDelay
+
+func init() {
+	if CtxCancelDelay == 0 {
+		CtxCancelDelay = defaultDelay
+	}
 }
 
 func intbool[T uintptr | int](v T) bool {
@@ -84,14 +96,14 @@ func (d *Divert) Close() error {
 	return nil
 }
 
-// Recv receive (read) a packet from a WinDivert handle.
-func (d *Divert) Recv(packet []byte) (int, *Address, error) {
+// Recv receive (read) a ip packet from a WinDivert handle.
+func (d *Divert) Recv(ip []byte) (int, *Address, error) {
 	var recvLen uint32
 	var addr Address
 
 	var dataPtr, recvLenPtr uintptr
-	if len(packet) > 0 {
-		dataPtr = uintptr(unsafe.Pointer(unsafe.SliceData(packet)))
+	if len(ip) > 0 {
+		dataPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
 		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
@@ -100,7 +112,7 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 		divert.recvProc,
 		d.handle,
 		dataPtr,
-		uintptr(len(packet)),
+		uintptr(len(ip)),
 		recvLenPtr,
 		uintptr(unsafe.Pointer(&addr)),
 	)
@@ -111,9 +123,9 @@ func (d *Divert) Recv(packet []byte) (int, *Address, error) {
 	return int(recvLen), &addr, nil
 }
 
-// RecvEx receive (read) a packet from a WinDivert handle.
+// RecvEx receive (read) a ip packet from a WinDivert handle.
 func (d *Divert) RecvEx(
-	packet []byte, flag uint64,
+	ip []byte, flag uint64,
 	lpOverlapped *windows.Overlapped,
 ) (int, *Address, error) {
 
@@ -123,8 +135,8 @@ func (d *Divert) RecvEx(
 	r1, _, err := syscallN(
 		divert.recvExProc,
 		d.handle,
-		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
-		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
+		uintptr(len(ip)),
 		uintptr(unsafe.Pointer(&recvLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(&addr)),
@@ -138,8 +150,54 @@ func (d *Divert) RecvEx(
 	return int(recvLen), &addr, nil
 }
 
+func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
+	var o windows.Overlapped
+	var recvLen uint32
+
+	o.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer windows.Close(o.HEvent)
+
+	for {
+
+		divert.RLock()
+		r1, _, err := syscallN(
+			divert.recvExProc,
+			d.handle,
+			uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
+			uintptr(len(ip)),
+			uintptr(unsafe.Pointer(&recvLen)),
+			0,
+			uintptr(unsafe.Pointer(&addr)),
+			0,
+			uintptr(unsafe.Pointer(&o)),
+		)
+		divert.RUnlock()
+		if !intbool(r1) && err != syscall.ERROR_IO_PENDING {
+			return 0, handleErr(err)
+		}
+
+		wfd, e := windows.WaitForSingleObject(o.HEvent, uint32(CtxCancelDelay.Milliseconds()))
+		if e != nil {
+			return 0, e
+		} else if wfd == windows.WAIT_OBJECT_0 {
+			return int(recvLen), nil
+		} else if wfd == uint32(windows.WAIT_TIMEOUT) {
+			select {
+			case <-ctx.Done():
+				return 0, os.ErrDeadlineExceeded
+			default:
+			}
+		} else {
+			return 0, fmt.Errorf("invalid WaitForSingleObject return 0x%x", wfd)
+		}
+	}
+}
+
 func (d *Divert) Send(
-	packet []byte,
+	ip []byte,
 	pAddr *Address,
 ) (int, error) {
 
@@ -148,8 +206,8 @@ func (d *Divert) Send(
 	r1, _, err := syscallN(
 		divert.sendProc,
 		d.handle,
-		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
-		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
+		uintptr(len(ip)),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(unsafe.Pointer(pAddr)),
 	)
@@ -162,7 +220,7 @@ func (d *Divert) Send(
 
 // SendEx send (write/inject) a packet to a WinDivert handle.
 func (d *Divert) SendEx(
-	packet []byte, flag uint64,
+	ip []byte, flag uint64,
 	pAddr *Address,
 ) (int, *windows.Overlapped, error) {
 
@@ -173,8 +231,8 @@ func (d *Divert) SendEx(
 	r1, _, err := syscallN(
 		divert.sendExProc,
 		d.handle,
-		uintptr(unsafe.Pointer(unsafe.SliceData(packet))),
-		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
+		uintptr(len(ip)),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(flag),
 		uintptr(unsafe.Pointer(pAddr)),
