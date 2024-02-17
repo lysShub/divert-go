@@ -591,7 +591,7 @@ func Test_Recv_Ctx(t *testing.T) {
 		var addr Address
 		s := time.Now()
 		n, err := d.RecvCtx(ctx, make([]byte, 1536), &addr)
-		require.True(t, errors.Is(err, os.ErrDeadlineExceeded))
+		require.True(t, errors.Is(err, context.Canceled))
 		require.Zero(t, n)
 		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
 		// t.Log(time.Since(s))
@@ -607,7 +607,7 @@ func Test_Recv_Ctx(t *testing.T) {
 		var addr Address
 		s := time.Now()
 		n, err := d.RecvCtx(ctx, make([]byte, 1536), &addr)
-		require.True(t, errors.Is(err, os.ErrDeadlineExceeded))
+		require.True(t, errors.Is(err, context.DeadlineExceeded))
 		require.Zero(t, n)
 		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
 		// t.Log(time.Since(s))

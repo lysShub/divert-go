@@ -184,7 +184,7 @@ func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 		} else if wfd == uint32(windows.WAIT_TIMEOUT) {
 			select {
 			case <-ctx.Done():
-				return 0, os.ErrDeadlineExceeded
+				return 0, ctx.Err()
 			default:
 			}
 		} else {
