@@ -54,10 +54,6 @@ func handleErr(err syscall.Errno) error {
 
 // Open open a WinDivert handle.
 func Open(filter string, layer Layer, priority int16, flags Flag) (*Divert, error) {
-	if priority > PRIORITY_HIGHEST || priority < -PRIORITY_HIGHEST {
-		return nil, fmt.Errorf("priority out of range [-%d, %d]", PRIORITY_HIGHEST, PRIORITY_HIGHEST)
-	}
-
 	pf, err := windows.BytePtrFromString(filter)
 	if err != nil {
 		return nil, err
@@ -97,9 +93,8 @@ func (d *Divert) Close() error {
 }
 
 // Recv receive (read) a ip packet from a WinDivert handle.
-func (d *Divert) Recv(ip []byte) (int, *Address, error) {
+func (d *Divert) Recv(ip []byte, addr *Address) (int, error) {
 	var recvLen uint32
-	var addr Address
 
 	var dataPtr, recvLenPtr uintptr
 	if len(ip) > 0 {
@@ -114,88 +109,88 @@ func (d *Divert) Recv(ip []byte) (int, *Address, error) {
 		dataPtr,
 		uintptr(len(ip)),
 		recvLenPtr,
-		uintptr(unsafe.Pointer(&addr)),
+		uintptr(unsafe.Pointer(addr)),
 	)
 	divert.RUnlock()
 	if !intbool(r1) {
-		return 0, nil, handleErr(err)
+		return 0, handleErr(err)
 	}
-	return int(recvLen), &addr, nil
+	return int(recvLen), nil
 }
 
 // RecvEx receive (read) a ip packet from a WinDivert handle.
 func (d *Divert) RecvEx(
-	ip []byte, flag uint64,
-	lpOverlapped *windows.Overlapped,
-) (int, *Address, error) {
+	ip []byte,
+	addr *Address,
+	ol *windows.Overlapped,
+) error {
 
-	var recvLen uint32
-	var addr Address
+	var ipPtr uintptr
+	if len(ip) > 0 {
+		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
+	}
+
 	divert.RLock()
 	r1, _, err := syscallN(
 		divert.recvExProc,
 		d.handle,
-		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
-		uintptr(len(ip)),
-		uintptr(unsafe.Pointer(&recvLen)),
-		uintptr(flag),
-		uintptr(unsafe.Pointer(&addr)),
-		0,
-		uintptr(unsafe.Pointer(lpOverlapped)),
+		ipPtr,                         // pPacket
+		uintptr(len(ip)),              // packetLen
+		0,                             // pRecvLen  NOTICE: not work
+		uintptr(0),                    // flags 0
+		uintptr(unsafe.Pointer(addr)), // pAddr
+		0,                             // pAddrLen
+		uintptr(unsafe.Pointer(ol)),   // lpOverlapped
 	)
 	divert.RUnlock()
 	if !intbool(r1) {
-		return 0, nil, handleErr(err)
+		return handleErr(err)
 	}
-	return int(recvLen), &addr, nil
+	return nil
 }
 
 func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
-	var o windows.Overlapped
-	o.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
+	var ol = &windows.Overlapped{}
+	ol.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
 	if err != nil {
 		return 0, err
 	}
-	defer windows.Close(o.HEvent)
+	defer windows.Close(ol.HEvent)
+
+	err = d.RecvEx(ip, addr, ol)
+	if err != nil && err != syscall.ERROR_IO_PENDING {
+		return 0, err
+	}
 
 	for {
-		divert.RLock()
-		r1, _, err := syscallN(
-			divert.recvExProc,
-			d.handle,
-			uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
-			uintptr(len(ip)),
-			0, //uintptr(unsafe.Pointer(&recvLen)) // pRecvLen not work
-			0,
-			uintptr(unsafe.Pointer(&addr)),
-			0,
-			uintptr(unsafe.Pointer(&o)),
-		)
-		divert.RUnlock()
-		if !intbool(r1) && err != syscall.ERROR_IO_PENDING {
-			return 0, handleErr(err)
+		e, err := windows.WaitForSingleObject(ol.HEvent, uint32(CtxCancelDelay.Milliseconds()))
+		if err != nil {
+			return 0, err
 		}
-
-		wfd, e := windows.WaitForSingleObject(o.HEvent, uint32(CtxCancelDelay.Milliseconds()))
-		if e != nil {
-			return 0, e
-		} else if wfd == windows.WAIT_OBJECT_0 {
-			return int(o.InternalHigh), nil
-		} else if wfd == uint32(windows.WAIT_TIMEOUT) {
+		switch e {
+		case windows.WAIT_OBJECT_0:
+			var m uint32
+			err = windows.GetOverlappedResult(windows.Handle(d.handle), ol, &m, false)
+			if err != nil {
+				return 0, err
+			}
+			return int(m), nil
+		case uint32(windows.WAIT_TIMEOUT):
 			select {
 			case <-ctx.Done():
 				return 0, ctx.Err()
 			default:
 			}
-		} else {
-			return 0, fmt.Errorf("invalid WaitForSingleObject return 0x%x", wfd)
+		default:
+			return 0, fmt.Errorf("invalid WaitForSingleObject return %d", e)
 		}
 	}
+
 }
 
 func (d *Divert) Send(
 	ip []byte,
-	pAddr *Address,
+	addr *Address,
 ) (int, error) {
 
 	var pSendLen uint32
@@ -206,7 +201,7 @@ func (d *Divert) Send(
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
 		uintptr(len(ip)),
 		uintptr(unsafe.Pointer(&pSendLen)),
-		uintptr(unsafe.Pointer(pAddr)),
+		uintptr(unsafe.Pointer(addr)),
 	)
 	divert.RUnlock()
 	if !intbool(r1) {
@@ -218,11 +213,11 @@ func (d *Divert) Send(
 // SendEx send (write/inject) a packet to a WinDivert handle.
 func (d *Divert) SendEx(
 	ip []byte, flag uint64,
-	pAddr *Address,
-) (int, *windows.Overlapped, error) {
+	addr *Address,
+	ol *windows.Overlapped,
+) (int, error) {
 
 	var pSendLen uint32
-	var overlapped windows.Overlapped
 
 	divert.RLock()
 	r1, _, err := syscallN(
@@ -232,16 +227,16 @@ func (d *Divert) SendEx(
 		uintptr(len(ip)),
 		uintptr(unsafe.Pointer(&pSendLen)),
 		uintptr(flag),
-		uintptr(unsafe.Pointer(pAddr)),
+		uintptr(unsafe.Pointer(addr)),
 		0,
-		uintptr(unsafe.Pointer(&overlapped)),
+		uintptr(unsafe.Pointer(ol)),
 	)
 	divert.RUnlock()
 	if !intbool(r1) {
-		return 0, nil, handleErr(err)
+		return 0, handleErr(err)
 	}
 
-	return int(pSendLen), &overlapped, err
+	return int(pSendLen), err
 }
 
 func (d *Divert) Shutdown(how SHUTDOWN) error {

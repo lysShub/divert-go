@@ -8,11 +8,11 @@ import (
 type Layer uint8
 
 const (
-	LAYER_NETWORK         Layer = iota // Network layer.
-	LAYER_NETWORK_FORWARD              // Network layer (forwarded packets)
-	LAYER_FLOW                         // Flow layer.
-	LAYER_SOCKET                       // Socket layer.
-	LAYER_REFLECT                      // Reflect layer.
+	NETWORK         Layer = iota // Network layer.
+	NETWORK_FORWARD              // Network layer (forwarded packets)
+	FLOW                         // Flow layer.
+	SOCKET                       // Socket layer.
+	REFLECT                      // Reflect layer.
 )
 
 type Address struct {
@@ -161,7 +161,7 @@ type DATA_FLOW struct {
 }
 
 func (d *DATA_FLOW) LocalAddr() netip.Addr {
-	if d.localAddr[3] == 0 && d.localAddr[2] == 0 && d.localAddr[1] == 0x0000FFFF {
+	if d.localAddr[3] == 0 && d.localAddr[2] == 0 && d.localAddr[1] == 0xFFFF {
 		// ipv4
 		_v := *(*[4]byte)(unsafe.Pointer(&d.localAddr[0]))
 		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
@@ -177,7 +177,7 @@ func (d *DATA_FLOW) LocalAddr() netip.Addr {
 }
 
 func (d *DATA_FLOW) RemoteAddr() netip.Addr {
-	if d.remoteAddr[3] == 0 && d.remoteAddr[2] == 0 && d.remoteAddr[1] == 0x0000FFFF {
+	if d.remoteAddr[3] == 0 && d.remoteAddr[2] == 0 && d.remoteAddr[1] == 0xFFFF {
 		// ipv4
 
 		_v := *(*[4]byte)(unsafe.Pointer(&d.remoteAddr[0]))
