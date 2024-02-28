@@ -17,7 +17,7 @@ func Loopback(src, dst netip.Addr) bool {
 
 	if src.IsUnspecified() {
 		var err error
-		src, _, err = Getway(dst)
+		src, _, err = Gateway(dst)
 		if err != nil {
 			return false
 		}
@@ -25,7 +25,7 @@ func Loopback(src, dst netip.Addr) bool {
 	return src == dst
 }
 
-func Getway(dst netip.Addr) (getway netip.Addr, ifIdx int, err error) {
+func Gateway(dst netip.Addr) (gateway netip.Addr, ifIdx int, err error) {
 	rows, err := GetIpForwardTable()
 	if err != nil {
 		return netip.Addr{}, 0, err

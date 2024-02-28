@@ -22,74 +22,21 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-var locIP = func() netip.Addr {
-	c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
-	return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
-}()
-
-var defaultNIC = func() uint32 {
-	idx, err := func(laddr netip.Addr) (int, error) {
-		ifs, err := net.Interfaces()
-		if err != nil {
-			return 0, err
-		}
-
-		nic := 0
-		for _, i := range ifs {
-			as, err := i.Addrs()
-			if err != nil {
-				return 0, err
-			}
-			for _, a := range as {
-				var ip net.IP
-				switch a := a.(type) {
-				case *net.IPAddr:
-					ip = a.IP
-				case *net.IPNet:
-					ip = a.IP
-				default:
-					return 0, fmt.Errorf("unknow address type %T", a)
-				}
-
-				if addr, ok := netip.AddrFromSlice(ip); !ok {
-					return 0, fmt.Errorf("invalid IP address %s", ip)
-				} else {
-					if addr.Is4In6() {
-						addr = netip.AddrFrom4(addr.As4())
-					}
-					if addr == laddr {
-						if nic == 0 {
-							nic = i.Index
-						} else {
-							return 0, fmt.Errorf("multiple nic have address %s", addr)
-						}
-					}
-				}
-			}
-		}
-
-		if nic == 0 {
-			return 0, fmt.Errorf("not found nic with %s address", laddr)
-		} else {
-			return nic, nil
-		}
-	}(locIP)
-	if err != nil {
-		panic(err)
-	}
-	return uint32(idx)
-}()
-
 var outboundAddr = func() *Address {
 	var addr Address
 	addr.SetOutbound(true)
 	return &addr
 }()
-var inboundAddr = func() *Address {
+var locIP, inboundAddr = func() (netip.Addr, *Address) {
+	ip, idx, err := Gateway(netip.IPv4Unspecified())
+	if err != nil {
+		panic(err)
+	}
+
 	var addr Address
 	addr.SetOutbound(false)
-	addr.Network().IfIdx = defaultNIC
-	return &addr
+	addr.Network().IfIdx = uint32(idx)
+	return ip, &addr
 }()
 
 func randPort() uint16 {

@@ -40,7 +40,7 @@ func Test_Loopback(t *testing.T) {
 
 func Test_Gatway(t *testing.T) {
 
-	addr, idx, err := divert.Getway(netip.IPv4Unspecified())
+	addr, idx, err := divert.Gateway(netip.IPv4Unspecified())
 	require.NoError(t, err)
 	require.Equal(t, locIP, addr)
 
