@@ -6,7 +6,7 @@ golang client for [windivert](https://github.com/basil00/Divert)
 
 
 
-Example:
+##### Example:
 
 ```golang
 package main
@@ -68,3 +68,8 @@ func main() {
 	}
 }
 ```
+
+##### TODO:
+- error use github.com/pkg/errors and with stack
+- test repeat load dll, if mem o(1), remove global divert
+- no require github.com/lysShub/dll-go

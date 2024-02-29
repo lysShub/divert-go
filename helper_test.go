@@ -31,7 +31,21 @@ func Test_Loopback(t *testing.T) {
 	}
 
 	{
+		src := locIP
+		dst := netip.AddrFrom4([4]byte{127, 0, 0, 1})
+		is := divert.Loopback(src, dst)
+		require.False(t, is)
+	}
+
+	{
 		src := netip.IPv4Unspecified()
+		dst := locIP
+		is := divert.Loopback(src, dst)
+		require.True(t, is)
+	}
+
+	{
+		src := locIP
 		dst := locIP
 		is := divert.Loopback(src, dst)
 		require.True(t, is)
@@ -39,14 +53,46 @@ func Test_Loopback(t *testing.T) {
 }
 
 func Test_Gatway(t *testing.T) {
+	t.Run("0.0.0.0", func(t *testing.T) {
+		src, idx, err := divert.Gateway(netip.IPv4Unspecified())
+		require.NoError(t, err)
+		require.Equal(t, locIP, src)
 
-	addr, idx, err := divert.Gateway(netip.IPv4Unspecified())
-	require.NoError(t, err)
-	require.Equal(t, locIP, addr)
+		expIdx, err := getNICIndex(locIP)
+		require.NoError(t, err)
+		require.Equal(t, expIdx, idx)
+	})
 
-	expIdx, err := getNICIndex(locIP)
-	require.NoError(t, err)
-	require.Equal(t, expIdx, idx)
+	t.Run("127.0.0.1", func(t *testing.T) {
+		dst := netip.AddrFrom4([4]byte{127, 0, 0, 1})
+
+		src, idx, err := divert.Gateway(dst)
+		require.NoError(t, err)
+		require.Equal(t, 1, idx)
+
+		require.Equal(t, src, dst)
+	})
+
+	t.Run("baidu.com", func(t *testing.T) {
+		dst := func() netip.Addr {
+			ips, err := net.LookupIP("baidu.com")
+			require.NoError(t, err)
+			for _, ip := range ips {
+				if ip.To4() != nil {
+					return netip.AddrFrom4([4]byte(ip.To4()))
+				}
+			}
+			panic("")
+		}()
+
+		src, idx, err := divert.Gateway(dst)
+		require.NoError(t, err)
+		require.Equal(t, locIP, src)
+
+		expIdx, err := getNICIndex(locIP)
+		require.NoError(t, err)
+		require.Equal(t, expIdx, idx)
+	})
 }
 
 func getNICIndex(addr netip.Addr) (int, error) {
@@ -55,43 +101,28 @@ func getNICIndex(addr netip.Addr) (int, error) {
 		return 0, err
 	}
 
-	nic := 0
 	for _, i := range ifs {
-		as, err := i.Addrs()
+		addrs, err := i.Addrs()
 		if err != nil {
 			return 0, err
 		}
-		for _, a := range as {
-			var ip net.IP
-			switch a := a.(type) {
-			case *net.IPAddr:
-				ip = a.IP
-			case *net.IPNet:
-				ip = a.IP
-			default:
-				return 0, fmt.Errorf("unknow address type %T", a)
-			}
+		for _, a := range addrs {
+			if a, ok := a.(*net.IPNet); ok {
+				_, bits := a.Mask.Size()
+				if bits == addr.BitLen() {
+					if a.IP.To4() != nil {
+						if netip.AddrFrom4([4]byte(a.IP.To4())) == addr {
+							return i.Index, nil
+						}
 
-			if a, ok := netip.AddrFromSlice(ip); !ok {
-				return 0, fmt.Errorf("invalid IP address %s", ip)
-			} else {
-				if a.Is4In6() {
-					a = netip.AddrFrom4(a.As4())
-				}
-				if a == addr {
-					if nic == 0 {
-						nic = i.Index
 					} else {
-						return 0, fmt.Errorf("multiple nic have address %s", a)
+						if netip.AddrFrom16([16]byte(a.IP)) == addr {
+							return i.Index, nil
+						}
 					}
 				}
 			}
 		}
 	}
-
-	if nic == 0 {
-		return 0, fmt.Errorf("not found nic with %s address", addr)
-	} else {
-		return nic, nil
-	}
+	return 0, fmt.Errorf("not found nic with %s address", addr)
 }
