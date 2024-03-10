@@ -2,7 +2,6 @@ package divert
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -11,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/go-ping/ping"
 	"github.com/stretchr/testify/assert"

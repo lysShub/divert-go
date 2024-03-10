@@ -5,9 +5,9 @@ package divert
 
 import (
 	"context"
-	"fmt"
 	"syscall"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
 
@@ -17,45 +17,45 @@ type Handle struct {
 
 func (d *Handle) Close() error {
 	err := global.close(d.handle)
-	return err
+	return errors.WithStack(err)
 }
 
 // Recv receive (read) a ip packet from a WinDivert handle.
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 	n, err := global.recv(d.handle, ip, addr)
-	return n, err
+	return n, errors.WithStack(err)
 }
 
 // RecvEx receive (read) a ip packet from a WinDivert handle.
 func (d *Handle) RecvEx(ip []byte, addr *Address, ol *windows.Overlapped) error {
 	err := global.recvEx(d.handle, ip, addr, ol)
-	return err
+	return errors.WithStack(err)
 }
 
 func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
 	var ol = &windows.Overlapped{}
-	ol.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
+	ol.HEvent, err = windows.CreateEvent(nil, 0, 0, nil) // todo: use global event
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
 	defer windows.CloseHandle(ol.HEvent)
 
 	err = d.RecvEx(ip, addr, ol)
-	if err != nil && err != syscall.ERROR_IO_PENDING {
+	if err != nil && !errors.Is(err, syscall.ERROR_IO_PENDING) {
 		return 0, err
 	}
 
 	for {
 		e, err := windows.WaitForSingleObject(ol.HEvent, 100)
 		if err != nil {
-			return 0, err
+			return 0, errors.WithStack(err)
 		}
 		switch e {
 		case windows.WAIT_OBJECT_0:
 			var m uint32
 			err = windows.GetOverlappedResult(windows.Handle(d.handle), ol, &m, true)
 			if err != nil {
-				return 0, err
+				return 0, errors.WithStack(err)
 			}
 			return int(m), nil
 		case uint32(windows.WAIT_TIMEOUT):
@@ -63,21 +63,20 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 			case <-ctx.Done():
 				err = windows.CancelIoEx(windows.Handle(d.handle), ol)
 				if err != nil {
-					return 0, err
+					return 0, errors.WithStack(err)
 				}
 				e, err := windows.WaitForSingleObject(ol.HEvent, 0)
 				if e == windows.WAIT_OBJECT_0 {
-					return 0, ctx.Err()
+					return 0, errors.WithStack(ctx.Err())
 				} else {
-					return 0, err
+					return 0, errors.WithStack(err)
 				}
 			default:
 			}
 		default:
-			return 0, fmt.Errorf("invalid WaitForSingleObject result %d", e)
+			return 0, errors.Errorf("invalid WaitForSingleObject result %d", e)
 		}
 	}
-
 }
 
 func (d *Handle) Send(
@@ -86,7 +85,7 @@ func (d *Handle) Send(
 ) (int, error) {
 
 	n, err := global.send(d.handle, ip, addr)
-	return n, err
+	return n, errors.WithStack(err)
 }
 
 // SendEx send (write/inject) a packet to a WinDivert handle.
@@ -97,20 +96,20 @@ func (d *Handle) SendEx(
 ) (int, error) {
 
 	n, err := global.sendEx(d.handle, ip, flag, addr, ol)
-	return n, err
+	return n, errors.WithStack(err)
 }
 
 func (d *Handle) Shutdown(how SHUTDOWN) error {
 	err := global.shutdown(d.handle, how)
-	return err
+	return errors.WithStack(err)
 }
 
 func (d *Handle) SetParam(param PARAM, value uint64) error {
 	err := global.setParam(d.handle, param, value)
-	return err
+	return errors.WithStack(err)
 }
 
 func (d *Handle) GetParam(param PARAM) (value uint64, err error) {
 	val, err := global.getParam(d.handle, param)
-	return val, err
+	return val, errors.WithStack(err)
 }

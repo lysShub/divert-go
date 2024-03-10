@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
 
@@ -34,11 +35,11 @@ func Load[T string | MemMode](p T) error {
 	case string:
 		global.dll, err = loadFileDLL(p)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	case MemMode:
 		if err = driverInstall(p.Sys); err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 
 		global.dll, err = loadMemDLL(p.DLL)
@@ -49,7 +50,8 @@ func Load[T string | MemMode](p T) error {
 		return windows.ERROR_INVALID_PARAMETER
 	}
 
-	return global.init()
+	err = global.init()
+	return errors.WithStack(err)
 }
 
 type ErrLoaded struct{}
@@ -67,7 +69,7 @@ func Release() error {
 
 	err := global.dll.Release()
 	global.dll = nil
-	return err
+	return errors.WithStack(err)
 }
 
 type divert struct {
@@ -164,7 +166,9 @@ func (d *divert) open(filter string, layer Layer, priority int16, flags Flag) (u
 	if err != nil {
 		return 0, err
 	}
-	flags = flags | NO_INSTALL
+	if _, ok := d.dll.(*mem); ok {
+		flags = flags | NO_INSTALL
+	}
 
 	r1, _, e := d.calln(
 		d.procOpen,
@@ -340,7 +344,6 @@ func (d *divert) shutdown(handle uintptr, how SHUTDOWN) error {
 	return nil
 }
 func (d *divert) close(handle uintptr) error {
-
 	r1, _, err := d.calln(d.procClose, handle)
 	if r1 == 0 {
 		return err
@@ -377,19 +380,22 @@ func (d *divert) getParam(handle uintptr, param PARAM) (value uint64, err error)
 func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, error) {
 	fd, err := global.open(filter, layer, priority, flags)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	return &Handle{handle: fd}, nil
 }
 
 func HelperCompileFilter(filter string, layer Layer) (string, error) {
-	return global.helperCompileFilter(filter, layer)
+	str, err := global.helperCompileFilter(filter, layer)
+	return str, errors.WithStack(err)
 }
 
 func HelperEvalFilter(filter string, ip []byte, addr *Address) (bool, error) {
-	return global.helperEvalFilter(filter, ip, addr)
+	ok, err := global.helperEvalFilter(filter, ip, addr)
+	return ok, errors.WithStack(err)
 }
 
 func HelperFormatFilter(filter string, layer Layer) (string, error) {
-	return global.helperFormatFilter(filter, layer)
+	str, err := global.helperFormatFilter(filter, layer)
+	return str, errors.WithStack(err)
 }

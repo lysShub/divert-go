@@ -1,49 +1,30 @@
 package divert
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"unsafe"
 
+	"github.com/pkg/errors"
+
 	"golang.org/x/sys/windows"
 )
 
-func driverInstall[T string | []byte](b T) error {
-	switch b := any(b).(type) {
-	case string:
-		path, err := filepath.Abs(b)
-		if err != nil {
-			return err
-		}
-		loc, err := filepath.Abs("./")
-		if err != nil {
-			return err
-		}
+func driverInstall(b []byte) error {
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("WinDivert%d.sys", unsafe.Sizeof(int(0))*8))
 
-		if path == loc {
-			// todo: use dll install
-			return winDivertDriverInstall(path)
-		}
-		return winDivertDriverInstall(path)
-	case []byte:
-		path := filepath.Join(os.TempDir(), fmt.Sprintf("WinDivert%d.sys", unsafe.Sizeof(int(0))*8))
-
-		if _, err := os.Stat(path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				// todo: validate existed driver is same as b
-				if err := os.WriteFile(path, b, 0666); err != nil {
-					return err
-				}
-			} else {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// todo: validate existed driver is same as b
+			if err := os.WriteFile(path, b, 0666); err != nil {
 				return err
 			}
+		} else {
+			return err
 		}
-		return winDivertDriverInstall(path)
-	default:
-		panic("impossible")
 	}
+	return winDivertDriverInstall(path)
 }
 
 const WINDIVERT_DEVICE_NAME = "WinDivert"
