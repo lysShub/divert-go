@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-ping/ping"
-	"github.com/lysShub/dll-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -128,43 +127,34 @@ func buildICMPEcho(t *testing.T, src, dst netip.Addr) []byte {
 	return p
 }
 
-func TestMain(t *testing.M) {
-	refs := divert.refs.Load()
-	if refs != 0 {
-		panic("before ut not Release()")
-	}
-
-	os.Exit(t.Run())
-}
-
 func Test_Load_DLL(t *testing.T) {
 	t.Run("embed", func(t *testing.T) {
-		e1 := Load(DLL, Sys)
+		e1 := Load(Mem)
 		require.NoError(t, e1)
 		require.NoError(t, Release())
 
-		e2 := Load(DLL, Sys)
+		e2 := Load(Mem)
 		require.NoError(t, e2)
 		require.NoError(t, Release())
 	})
 
 	t.Run("file", func(t *testing.T) {
-		e1 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
+		e1 := Load("embed\\WinDivert64.dll")
 		require.NoError(t, e1)
 		require.NoError(t, Release())
 
-		e2 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
+		e2 := Load("embed\\WinDivert64.dll")
 		require.NoError(t, e2)
 		require.NoError(t, Release())
 	})
 
 	t.Run("load-fail", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, err)
 	})
 
 	t.Run("load-fail/open", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, err)
 
 		d, err := Open("false", NETWORK, 0, 0)
@@ -173,60 +163,58 @@ func Test_Load_DLL(t *testing.T) {
 	})
 
 	t.Run("load-fail/release", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, err)
 
-		err = Release()
-		require.True(t, errors.Is(err, dll.ERR_RELEASE_DLL_NOT_LOAD))
+		require.NoError(t, Release())
 	})
 
 	t.Run("load-fail/load", func(t *testing.T) {
-		e1 := Load("C:\\Windows\\System32\\ws2_32.dll", "embed\\WinDivert64.sys")
+		e1 := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, e1)
-		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
+		require.NoError(t, Release())
 
-		e := Load(DLL, Sys)
+		e := Load(Mem)
 		require.NoError(t, e)
 		require.NoError(t, Release())
 	})
 
 	t.Run("load/load", func(t *testing.T) {
-		e1 := Load("embed\\WinDivert64.dll", "embed\\WinDivert64.sys")
+		e1 := Load("embed\\WinDivert64.dll")
 		require.NoError(t, e1)
 
-		e2 := Load(DLL, Sys)
-		require.NoError(t, e2)
+		e2 := Load(Mem)
+		require.True(t, errors.Is(e2, ErrLoaded{}))
 
 		require.NoError(t, Release())
 	})
 
 	t.Run("release/release", func(t *testing.T) {
-		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
-		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
+		require.NoError(t, Release())
+		require.NoError(t, Release())
 	})
 
 	t.Run("load/release/release", func(t *testing.T) {
-		err := Load(DLL, Sys)
+		err := Load(Mem)
 		require.NoError(t, err)
 
 		require.NoError(t, Release())
-		require.True(t, errors.Is(Release(), dll.ERR_RELEASE_DLL_NOT_LOAD))
+		require.NoError(t, Release())
 	})
 
 	t.Run("load/open/release", func(t *testing.T) {
-		e1 := Load(DLL, Sys)
-		require.NoError(t, e1)
+		err := Load(Mem)
+		require.NoError(t, err)
 		defer Release()
 
-		d1, e2 := Open("false", NETWORK, 0, 0)
-		require.NoError(t, e2)
+		d1, err := Open("false", NETWORK, 0, 0)
+		require.NoError(t, err)
 		require.NoError(t, d1.Close())
 
-		d2, e3 := Open("false", NETWORK, 0, 0)
-		require.NoError(t, e3)
-		defer d2.Close()
+		require.NoError(t, Release())
 
-		require.Error(t, Release())
+		_, err = d1.Recv(nil, nil)
+		require.True(t, errors.Is(err, os.ErrClosed))
 	})
 
 	t.Run("open", func(t *testing.T) {
@@ -236,7 +224,7 @@ func Test_Load_DLL(t *testing.T) {
 	})
 
 	t.Run("load/release/open", func(t *testing.T) {
-		err := Load(DLL, Sys)
+		err := Load(Mem)
 		require.NoError(t, err)
 		require.NoError(t, Release())
 
@@ -248,8 +236,7 @@ func Test_Load_DLL(t *testing.T) {
 }
 
 func Test_Address(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("flow", func(t *testing.T) {
@@ -342,8 +329,7 @@ func Test_Address(t *testing.T) {
 }
 
 func Test_Recv_Error(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("close/recv", func(t *testing.T) {
@@ -414,7 +400,7 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, d.Shutdown(BOTH))
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.NoError(t, err)
+		require.True(t, errors.Is(err, os.ErrClosed))
 		require.Zero(t, n)
 	})
 
@@ -428,7 +414,7 @@ func Test_Recv_Error(t *testing.T) {
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.NoError(t, err)
+		require.True(t, errors.Is(err, os.ErrClosed))
 		require.Zero(t, n)
 	})
 
@@ -442,7 +428,7 @@ func Test_Recv_Error(t *testing.T) {
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.NoError(t, err)
+		require.True(t, errors.Is(err, os.ErrClosed))
 		require.Zero(t, n)
 
 		require.NoError(t, d.Shutdown(BOTH))
@@ -459,7 +445,7 @@ func Test_Recv_Error(t *testing.T) {
 
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
-			require.NoError(t, err)
+			require.True(t, errors.Is(err, os.ErrClosed))
 			require.Zero(t, n)
 		}
 		{
@@ -467,15 +453,14 @@ func Test_Recv_Error(t *testing.T) {
 		}
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
-			require.NoError(t, err)
+			require.True(t, errors.Is(err, os.ErrClosed))
 			require.Zero(t, n)
 		}
 	})
 }
 
 func Test_Recv(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("Recv/network/loopback", func(t *testing.T) {
@@ -564,8 +549,7 @@ func Test_Recv(t *testing.T) {
 		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
 		require.True(t, errors.Is(err, context.Canceled))
 		require.Zero(t, n)
-		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
-		// t.Log(time.Since(s))
+		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
 	})
 
 	t.Run("RecvCtx/timeout", func(t *testing.T) {
@@ -579,7 +563,7 @@ func Test_Recv(t *testing.T) {
 		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
 		require.True(t, errors.Is(err, context.DeadlineExceeded))
 		require.Zero(t, n)
-		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
+		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
 		// t.Log(time.Since(s))
 	})
 
@@ -605,15 +589,13 @@ func Test_Recv(t *testing.T) {
 		require.NoError(t, err)
 		iphdr := header.IPv4(ip[:n])
 		require.Equal(t, n, int(iphdr.TotalLength()))
-		require.Less(t, time.Since(s), time.Second+2*CtxCancelDelay)
+		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
 		// t.Log(time.Since(s))
 	})
-
 }
 
 func Test_Send(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("inbound", func(t *testing.T) {
@@ -753,8 +735,7 @@ func Test_Send(t *testing.T) {
 }
 
 func Test_Auto_Handle_DF(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("recv", func(t *testing.T) {
@@ -798,8 +779,7 @@ func Test_Auto_Handle_DF(t *testing.T) {
 // test priority for recv.
 // CONCLUSION: packet alway be handle by higher priority.
 func Test_Recv_Priority(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("outbound", func(t *testing.T) {
@@ -985,8 +965,7 @@ func Test_Recv_Priority(t *testing.T) {
 // test priority for send.
 // CONCLUSION: send packet will be handle by equal(random) or lower(always) priority
 func Test_Send_Priority(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("outbound", func(t *testing.T) {
@@ -1091,8 +1070,7 @@ func Test_Send_Priority(t *testing.T) {
 }
 
 func Test_Helper(t *testing.T) {
-	err := Load(DLL, Sys)
-	require.NoError(t, err)
+	require.NoError(t, Load(Mem))
 	defer Release()
 
 	t.Run("format/null", func(t *testing.T) {
@@ -1100,9 +1078,8 @@ func Test_Helper(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		s, err := d.HelperFormatFilter("", NETWORK)
+		s, err := HelperFormatFilter("", NETWORK)
 		require.True(t, errors.Is(err, windows.ERROR_INVALID_PARAMETER))
 		require.Zero(t, len(s))
 	})
-	// todo:
 }

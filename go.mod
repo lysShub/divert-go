@@ -4,18 +4,16 @@ go 1.20
 
 require (
 	github.com/go-ping/ping v1.1.0
-	github.com/lysShub/dll-go v0.0.0-20240131092034-3f09ae5eff72
 	github.com/stretchr/testify v1.8.3
 	golang.org/x/sys v0.16.0
 	gvisor.dev/gvisor v0.0.0-20230916030846-1d82564559db
 )
 
 require (
-	github.com/ebitengine/purego v0.5.1 // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	golang.org/x/net v0.20.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
+	golang.zx2c4.com/wireguard/windows v0.5.3
 )
 
 require (

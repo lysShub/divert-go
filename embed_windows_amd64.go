@@ -2,14 +2,17 @@ package divert
 
 import (
 	_ "embed"
-
-	"github.com/lysShub/dll-go"
 )
 
 // https://reqrypt.org/download/WinDivert-2.2.2-A.zip
 
 //go:embed embed/WinDivert64.dll
-var DLL dll.MemDLL
+var dllData []byte
 
 //go:embed embed/WinDivert64.sys
-var Sys []byte
+var sysData []byte
+
+var Mem = MemMode{
+	DLL: dllData,
+	Sys: sysData,
+}

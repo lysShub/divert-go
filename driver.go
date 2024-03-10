@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	"github.com/lysShub/dll-go"
 	"golang.org/x/sys/windows"
 )
 
-func driverInstall[T string | dll.MemDLL](b T) error {
+func driverInstall[T string | []byte](b T) error {
 	switch b := any(b).(type) {
 	case string:
 		path, err := filepath.Abs(b)
@@ -28,7 +27,7 @@ func driverInstall[T string | dll.MemDLL](b T) error {
 			return winDivertDriverInstall(path)
 		}
 		return winDivertDriverInstall(path)
-	case dll.MemDLL:
+	case []byte:
 		path := filepath.Join(os.TempDir(), fmt.Sprintf("WinDivert%d.sys", unsafe.Sizeof(int(0))*8))
 
 		if _, err := os.Stat(path); err != nil {

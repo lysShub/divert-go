@@ -2,12 +2,15 @@ package divert
 
 import (
 	_ "embed"
-
-	"github.com/lysShub/dll-go"
 )
 
 //go:embed embed/WinDivert32.dll
-var DLL dll.MemDLL
+var dllData []byte
 
 //go:embed embed/WinDivert32.sys
-var Sys []byte
+var sysData []byte
+
+var Mem = MemMode{
+	DLL: dllData,
+	Sys: sysData,
+}

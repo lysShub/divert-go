@@ -4,286 +4,189 @@
 package divert
 
 import (
-	"context"
-	"fmt"
-	"io"
 	"os"
-	"sync/atomic"
+	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-type Divert struct {
-	handle uintptr
-}
+var global divert
 
-const defaultDelay = time.Millisecond * 100
-
-var CtxCancelDelay time.Duration = defaultDelay
-
-func init() {
-	if CtxCancelDelay == 0 {
-		CtxCancelDelay = defaultDelay
+func MustLoad[T string | MemMode](p T) struct{} {
+	err := Load(p)
+	if err != nil {
+		panic(err)
 	}
+	return struct{}{}
 }
 
-func intbool[T uintptr | int](v T) bool {
-	return v != 0
-}
+func Load[T string | MemMode](p T) error {
+	global.Lock()
+	defer global.Unlock()
+	if global.dll != nil {
+		return ErrLoaded{}
+	}
 
-func handleErr(err syscall.Errno) error {
-	switch err {
-	case windows.ERROR_OPERATION_ABORTED, // close after Recv()
-		windows.ERROR_INVALID_HANDLE: // close before Recv()
-
-		return os.ErrClosed
-	case windows.ERROR_NO_DATA:
-		return nil // shutdown
-	case windows.ERROR_INSUFFICIENT_BUFFER:
-		return io.ErrShortBuffer
-	default:
-		if err == 0 {
-			return syscall.EINVAL
+	var err error
+	switch p := any(p).(type) {
+	case string:
+		global.dll, err = loadFileDLL(p)
+		if err != nil {
+			return err
 		}
-		return err
+	case MemMode:
+		if err = driverInstall(p.Sys); err != nil {
+			return err
+		}
+
+		global.dll, err = loadMemDLL(p.DLL)
+		if err != nil {
+			return err
+		}
+	default:
+		return windows.ERROR_INVALID_PARAMETER
 	}
+
+	return global.init()
 }
 
-// Open open a WinDivert handle.
-func Open(filter string, layer Layer, priority int16, flags Flag) (*Divert, error) {
+type ErrLoaded struct{}
+
+func (e ErrLoaded) Error() string {
+	return "divert loaded"
+}
+
+func Release() error {
+	global.Lock()
+	defer global.Unlock()
+	if global.dll == nil {
+		return nil
+	}
+
+	err := global.dll.Release()
+	global.dll = nil
+	return err
+}
+
+type divert struct {
+	sync.RWMutex
+
+	dll dll
+
+	procOpen                uintptr // WinDivertOpen
+	procHelperCompileFilter uintptr // WinDivertHelperCompileFilter
+	procHelperEvalFilter    uintptr // WinDivertHelperEvalFilter
+	procHelperFormatFilter  uintptr // WinDivertHelperFormatFilter
+
+	procRecv     uintptr // WinDivertRecv
+	procRecvEx   uintptr // WinDivertRecvEx
+	procSend     uintptr // WinDivertSend
+	procSendEx   uintptr // WinDivertSendEx
+	procShutdown uintptr // WinDivertShutdown
+	procClose    uintptr // WinDivertClose
+	procSetParam uintptr // WinDivertSetParam
+	procGetParam uintptr // WinDivertGetParam
+}
+
+func (d *divert) init() (err error) {
+	if d.procOpen, err = d.dll.FindProc("WinDivertOpen"); err != nil {
+		goto ret
+	}
+	if d.procHelperCompileFilter, err = d.dll.FindProc("WinDivertHelperCompileFilter"); err != nil {
+		goto ret
+	}
+	if d.procHelperEvalFilter, err = d.dll.FindProc("WinDivertHelperEvalFilter"); err != nil {
+		goto ret
+	}
+	if d.procHelperFormatFilter, err = d.dll.FindProc("WinDivertHelperFormatFilter"); err != nil {
+		goto ret
+	}
+
+	if d.procRecv, err = d.dll.FindProc("WinDivertRecv"); err != nil {
+		goto ret
+	}
+	if d.procRecvEx, err = d.dll.FindProc("WinDivertRecvEx"); err != nil {
+		goto ret
+	}
+	if d.procSend, err = d.dll.FindProc("WinDivertSend"); err != nil {
+		goto ret
+	}
+	if d.procSendEx, err = d.dll.FindProc("WinDivertSendEx"); err != nil {
+		goto ret
+	}
+	if d.procShutdown, err = d.dll.FindProc("WinDivertShutdown"); err != nil {
+		goto ret
+	}
+	if d.procClose, err = d.dll.FindProc("WinDivertClose"); err != nil {
+		goto ret
+	}
+	if d.procSetParam, err = d.dll.FindProc("WinDivertSetParam"); err != nil {
+		goto ret
+	}
+	if d.procGetParam, err = d.dll.FindProc("WinDivertGetParam"); err != nil {
+		goto ret
+	}
+
+ret:
+	if err != nil {
+		d.dll.Release()
+		d.dll = nil
+	}
+	return err
+}
+
+func (d *divert) calln(trap uintptr, args ...uintptr) (r1, r2 uintptr, err error) {
+	d.RLock()
+	defer d.RUnlock()
+
+	if d.dll == nil {
+		return 0, 0, os.ErrClosed
+	}
+
+	var e syscall.Errno
+	r1, r2, e = syscall.SyscallN(trap, args...)
+	switch e {
+	case windows.ERROR_INVALID_HANDLE,
+		windows.ERROR_OPERATION_ABORTED,
+		windows.ERROR_NO_DATA:
+
+		err = os.ErrClosed
+	default:
+		err = e
+	}
+	return r1, r2, err
+}
+
+func (d *divert) open(filter string, layer Layer, priority int16, flags Flag) (uintptr, error) {
 	pf, err := windows.BytePtrFromString(filter)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-
 	flags = flags | NO_INSTALL
-	divert.RLock()
-	r1, _, e := syscallN(
-		divert.openProc,
+
+	r1, _, e := d.calln(
+		d.procOpen,
 		uintptr(unsafe.Pointer(pf)),
 		uintptr(layer),
 		uintptr(priority),
 		uintptr(flags),
 	)
-	divert.RUnlock()
-	if r1 == uintptr(syscall.InvalidHandle) || e != 0 {
-		return nil, handleErr(e)
+	if r1 == 0 {
+		return 0, e
 	}
-
-	divert.refs.Add(1)
-	return &Divert{
-		handle: r1,
-	}, nil
+	return r1, nil
 }
-
-func (d *Divert) Close() error {
-	old := atomic.SwapUintptr(&d.handle, 0)
-	divert.RLock()
-	r1, _, err := syscallN(divert.closeProc, old)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return handleErr(err)
-	}
-
-	divert.refs.Add(-1)
-	return nil
-}
-
-// Recv receive (read) a ip packet from a WinDivert handle.
-func (d *Divert) Recv(ip []byte, addr *Address) (int, error) {
-	var recvLen uint32
-
-	var dataPtr, recvLenPtr uintptr
-	if len(ip) > 0 {
-		dataPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
-		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
-	}
-
-	divert.RLock()
-	r1, _, err := syscallN(
-		divert.recvProc,
-		d.handle,
-		dataPtr,
-		uintptr(len(ip)),
-		recvLenPtr,
-		uintptr(unsafe.Pointer(addr)),
-	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return 0, handleErr(err)
-	}
-	return int(recvLen), nil
-}
-
-// RecvEx receive (read) a ip packet from a WinDivert handle.
-func (d *Divert) RecvEx(
-	ip []byte,
-	addr *Address,
-	ol *windows.Overlapped,
-) error {
-
-	var ipPtr uintptr
-	if len(ip) > 0 {
-		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
-	}
-
-	divert.RLock()
-	r1, _, err := syscallN(
-		divert.recvExProc,
-		d.handle,
-		ipPtr,                         // pPacket
-		uintptr(len(ip)),              // packetLen
-		0,                             // pRecvLen  NOTICE: not work
-		uintptr(0),                    // flags 0
-		uintptr(unsafe.Pointer(addr)), // pAddr
-		0,                             // pAddrLen
-		uintptr(unsafe.Pointer(ol)),   // lpOverlapped
-	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return handleErr(err)
-	}
-	return nil
-}
-
-func (d *Divert) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
-	var ol = &windows.Overlapped{}
-	ol.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer windows.Close(ol.HEvent)
-
-	err = d.RecvEx(ip, addr, ol)
-	if err != nil && err != syscall.ERROR_IO_PENDING {
-		return 0, err
-	}
-
-	for {
-		e, err := windows.WaitForSingleObject(ol.HEvent, uint32(CtxCancelDelay.Milliseconds()))
-		if err != nil {
-			return 0, err
-		}
-		switch e {
-		case windows.WAIT_OBJECT_0:
-			var m uint32
-			err = windows.GetOverlappedResult(windows.Handle(d.handle), ol, &m, false)
-			if err != nil {
-				return 0, err
-			}
-			return int(m), nil
-		case uint32(windows.WAIT_TIMEOUT):
-			select {
-			case <-ctx.Done():
-				return 0, ctx.Err()
-			default:
-			}
-		default:
-			return 0, fmt.Errorf("invalid WaitForSingleObject return %d", e)
-		}
-	}
-
-}
-
-func (d *Divert) Send(
-	ip []byte,
-	addr *Address,
-) (int, error) {
-
-	var pSendLen uint32
-	divert.RLock()
-	r1, _, err := syscallN(
-		divert.sendProc,
-		d.handle,
-		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
-		uintptr(len(ip)),
-		uintptr(unsafe.Pointer(&pSendLen)),
-		uintptr(unsafe.Pointer(addr)),
-	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return 0, handleErr(err)
-	}
-	return int(pSendLen), nil
-}
-
-// SendEx send (write/inject) a packet to a WinDivert handle.
-func (d *Divert) SendEx(
-	ip []byte, flag uint64,
-	addr *Address,
-	ol *windows.Overlapped,
-) (int, error) {
-
-	var pSendLen uint32
-
-	divert.RLock()
-	r1, _, err := syscallN(
-		divert.sendExProc,
-		d.handle,
-		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
-		uintptr(len(ip)),
-		uintptr(unsafe.Pointer(&pSendLen)),
-		uintptr(flag),
-		uintptr(unsafe.Pointer(addr)),
-		0,
-		uintptr(unsafe.Pointer(ol)),
-	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return 0, handleErr(err)
-	}
-
-	return int(pSendLen), err
-}
-
-func (d *Divert) Shutdown(how SHUTDOWN) error {
-	divert.RLock()
-	r1, _, err := syscallN(divert.shutdownProc, d.handle, uintptr(how))
-	divert.RUnlock()
-	if !intbool(r1) {
-		return handleErr(err)
-	}
-	return nil
-}
-
-func (d *Divert) SetParam(param PARAM, value uint64) error {
-	divert.RLock()
-	r1, _, err := syscallN(divert.setParamProc, d.handle, uintptr(param), uintptr(value))
-	divert.RUnlock()
-	if !intbool(r1) {
-		return handleErr(err)
-	}
-	return nil
-}
-
-func (d *Divert) GetParam(param PARAM) (value uint64, err error) {
-	divert.RLock()
-	r1, _, e := syscallN(
-		divert.getParamProc,
-		d.handle,
-		uintptr(param),
-		uintptr(unsafe.Pointer(&value)),
-	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return 0, handleErr(e)
-	}
-	return value, nil
-}
-
-func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error) {
+func (d *divert) helperCompileFilter(filter string, layer Layer) (string, error) {
 	var buf = make([]byte, len(filter)+64)
-
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
 		return "", err
 	}
-	divert.RLock()
-	r1, _, e := syscallN(
-		divert.helperCompileFilterProc,
+
+	r1, _, e := d.calln(
+		d.procHelperCompileFilter,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
@@ -291,11 +194,9 @@ func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error)
 		0,
 		0,
 	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return "", handleErr(e)
+	if r1 == 0 {
+		return "", e
 	}
-
 	for i, v := range buf {
 		if v == 0 {
 			return string(buf[:i]), nil
@@ -303,45 +204,40 @@ func (d *Divert) HelperCompileFilter(filter string, layer Layer) (string, error)
 	}
 	return "", nil
 }
-
-func (d *Divert) HelperEvalFilter(filter string, packet []byte, addr *Address) (bool, error) {
+func (d *divert) helperEvalFilter(filter string, ip []byte, addr *Address) (bool, error) {
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
 		return false, err
 	}
-	divert.RLock()
-	r1, _, e := syscallN(
-		divert.helperEvalFilterProc,
+
+	r1, _, e := d.calln(
+		d.procHelperEvalFilter,
 		uintptr(unsafe.Pointer(pFilter)),
-		uintptr(unsafe.Pointer(&packet[0])),
-		uintptr(len(packet)),
+		uintptr(unsafe.Pointer(&ip[0])),
+		uintptr(len(ip)),
 		uintptr(unsafe.Pointer(addr)),
 	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return false, handleErr(e)
+	if r1 == 0 {
+		return false, e
 	}
-	return true, e
+	return true, nil
 }
-
-func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) {
+func (d *divert) helperFormatFilter(filter string, layer Layer) (string, error) {
 	var buf = make([]uint8, len(filter)+64)
-
 	pFilter, err := syscall.BytePtrFromString(filter)
 	if err != nil {
 		return "", err
 	}
-	divert.RLock()
-	r1, _, e := syscallN(
-		divert.helperFormatFilterProc,
+
+	r1, _, e := d.calln(
+		d.procHelperFormatFilter,
 		uintptr(unsafe.Pointer(pFilter)),
 		uintptr(layer),
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)),
 	)
-	divert.RUnlock()
-	if !intbool(r1) {
-		return "", handleErr(e)
+	if r1 == 0 {
+		return "", e
 	}
 
 	for i, v := range buf {
@@ -351,4 +247,149 @@ func (d *Divert) HelperFormatFilter(filter string, layer Layer) (string, error) 
 		}
 	}
 	return string(buf), nil
+}
+
+func (d *divert) recv(handle uintptr, ip []byte, addr *Address) (int, error) {
+	var recvLen uint32
+	var dataPtr, recvLenPtr uintptr
+	if len(ip) > 0 {
+		dataPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
+		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
+	}
+
+	r1, _, err := d.calln(
+		d.procRecv,
+		handle,
+		dataPtr,
+		uintptr(len(ip)),
+		recvLenPtr,
+		uintptr(unsafe.Pointer(addr)),
+	)
+	if r1 == 0 {
+		return 0, err
+	}
+	return int(recvLen), nil
+}
+func (d *divert) recvEx(handle uintptr, ip []byte, addr *Address, ol *windows.Overlapped) error {
+	var ipPtr uintptr
+	if len(ip) > 0 {
+		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
+	}
+
+	r1, _, err := d.calln(
+		d.procRecvEx,
+		handle,
+		ipPtr,                         // pPacket
+		uintptr(len(ip)),              // packetLen
+		0,                             // pRecvLen  NOTICE: not work
+		uintptr(0),                    // flags 0
+		uintptr(unsafe.Pointer(addr)), // pAddr
+		0,                             // pAddrLen
+		uintptr(unsafe.Pointer(ol)),   // lpOverlapped
+	)
+	if r1 == 0 {
+		return err
+	}
+	return nil
+}
+func (d *divert) send(handle uintptr, ip []byte, addr *Address) (int, error) {
+	var sendLen uint32
+
+	r1, _, err := d.calln(
+		d.procSend,
+		handle,
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
+		uintptr(len(ip)),
+		uintptr(unsafe.Pointer(&sendLen)),
+		uintptr(unsafe.Pointer(addr)),
+	)
+	if r1 == 0 {
+		return 0, err
+	}
+	return int(sendLen), nil
+}
+func (d *divert) sendEx(handle uintptr, ip []byte, flag uint64, addr *Address, ol *windows.Overlapped) (int, error) {
+	var sendLen uint32
+
+	r1, _, err := d.calln(
+		d.procSendEx,
+		handle,
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
+		uintptr(len(ip)),
+		uintptr(unsafe.Pointer(&sendLen)),
+		uintptr(flag),
+		uintptr(unsafe.Pointer(addr)),
+		0,
+		uintptr(unsafe.Pointer(ol)),
+	)
+	if r1 == 0 {
+		return 0, err
+	}
+	return int(sendLen), nil
+}
+func (d *divert) shutdown(handle uintptr, how SHUTDOWN) error {
+
+	r1, _, err := d.calln(
+		d.procShutdown,
+		handle,
+		uintptr(how),
+	)
+	if r1 == 0 {
+		return err
+	}
+	return nil
+}
+func (d *divert) close(handle uintptr) error {
+
+	r1, _, err := d.calln(d.procClose, handle)
+	if r1 == 0 {
+		return err
+	}
+	return nil
+}
+func (d *divert) setParam(handle uintptr, param PARAM, value uint64) error {
+
+	r1, _, err := d.calln(
+		d.procSetParam,
+		handle,
+		uintptr(param),
+		uintptr(value),
+	)
+	if r1 == 0 {
+		return err
+	}
+	return nil
+}
+func (d *divert) getParam(handle uintptr, param PARAM) (value uint64, err error) {
+
+	r1, _, e := d.calln(
+		d.procGetParam,
+		handle,
+		uintptr(param),
+		uintptr(unsafe.Pointer(&value)),
+	)
+	if r1 == 0 {
+		return 0, e
+	}
+	return value, nil
+}
+
+func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, error) {
+	fd, err := global.open(filter, layer, priority, flags)
+	if err != nil {
+		return nil, err
+	}
+	return &Handle{handle: fd}, nil
+}
+
+func HelperCompileFilter(filter string, layer Layer) (string, error) {
+	return global.helperCompileFilter(filter, layer)
+}
+
+func HelperEvalFilter(filter string, ip []byte, addr *Address) (bool, error) {
+	return global.helperEvalFilter(filter, ip, addr)
+}
+
+func HelperFormatFilter(filter string, layer Layer) (string, error) {
+	return global.helperFormatFilter(filter, layer)
 }
