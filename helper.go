@@ -1,10 +1,10 @@
 package divert
 
 import (
-	"fmt"
 	"net"
 	"net/netip"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
 
@@ -27,12 +27,12 @@ func Gateway(dst netip.Addr) (gateway netip.Addr, ifIdx int, err error) {
 		err = windows.GetBestInterfaceEx(&windows.SockaddrInet6{Addr: dst.As16()}, &idx)
 	}
 	if err != nil {
-		return netip.Addr{}, 0, err
+		return netip.Addr{}, 0, errors.WithStack(err)
 	}
 
 	addrs, err := (&net.Interface{Index: int(idx)}).Addrs()
 	if err != nil {
-		return netip.Addr{}, 0, err
+		return netip.Addr{}, 0, errors.WithStack(err)
 	}
 	for _, addr := range addrs {
 		if addr, ok := addr.(*net.IPNet); ok {
@@ -46,5 +46,5 @@ func Gateway(dst netip.Addr) (gateway netip.Addr, ifIdx int, err error) {
 			}
 		}
 	}
-	return netip.Addr{}, int(idx), fmt.Errorf("addapter index %d without valid address", idx)
+	return netip.Addr{}, int(idx), errors.Errorf("addapter index %d without valid address", idx)
 }

@@ -19,28 +19,24 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header" // go get gvisor.dev/gvisor@go
 )
 
-func init() {
-	// suggest use version 2.2.0
-	if err := divert.SetPath("./WinDivert.dll"); err != nil {
-		panic(err)
-	}
-}
-
 func main() {
+	divert.Load(divert.Mem)
+	defer divert.Release()
 
-	hdl, err := divert.Open("tcp.Syn and !loopback", divert.LAYER_NETWORK, 0, divert.FLAG_SNIFF|divert.FLAG_READ_ONLY)
+	d, err := divert.Open("tcp.Syn and !loopback", divert.Network, 0, divert.Sniff|divert.ReadOnly)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	var b = make([]byte, 1536)
+	var addr divert.Address
 	for {
-		n, addr, err := hdl.Recv(b[:cap(b)])
+		n, err := d.Recv(b[:cap(b)], &addr)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if addr.IPv6() {
+		if !addr.IPv6() {
 			if n >= header.IPv4MinimumSize+header.TCPMinimumSize {
 				ipHdr := header.IPv4(b[:n])
 				tcpHdr := header.TCP(ipHdr[ipHdr.HeaderLength():])
@@ -68,8 +64,3 @@ func main() {
 	}
 }
 ```
-
-##### TODO:
-- error use github.com/pkg/errors and with stack
-- test repeat load dll, if mem o(1), remove global divert
-- no require github.com/lysShub/dll-go

@@ -1,6 +1,3 @@
-//go:build windows
-// +build windows
-
 package divert
 
 import (
@@ -20,13 +17,11 @@ func (d *Handle) Close() error {
 	return errors.WithStack(err)
 }
 
-// Recv receive (read) a ip packet from a WinDivert handle.
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 	n, err := global.recv(d.handle, ip, addr)
 	return n, errors.WithStack(err)
 }
 
-// RecvEx receive (read) a ip packet from a WinDivert handle.
 func (d *Handle) RecvEx(ip []byte, addr *Address, ol *windows.Overlapped) error {
 	err := global.recvEx(d.handle, ip, addr, ol)
 	return errors.WithStack(err)
@@ -88,7 +83,6 @@ func (d *Handle) Send(
 	return n, errors.WithStack(err)
 }
 
-// SendEx send (write/inject) a packet to a WinDivert handle.
 func (d *Handle) SendEx(
 	ip []byte, flag uint64,
 	addr *Address,
