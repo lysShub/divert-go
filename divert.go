@@ -167,7 +167,7 @@ func (d *divert) open(filter string, layer Layer, priority int16, flags Flag) (u
 		return 0, err
 	}
 	if _, ok := d.dll.(*mem); ok {
-		flags = flags | NO_INSTALL
+		flags = flags | NoInstall
 	}
 
 	r1, _, e := d.calln(
@@ -315,6 +315,7 @@ func (d *divert) send(handle uintptr, ip []byte, addr *Address) (int, error) {
 func (d *divert) sendEx(handle uintptr, ip []byte, flag uint64, addr *Address, ol *windows.Overlapped) (int, error) {
 	var sendLen uint32
 
+	// todo: support batch
 	r1, _, err := d.calln(
 		d.procSendEx,
 		handle,
@@ -331,7 +332,7 @@ func (d *divert) sendEx(handle uintptr, ip []byte, flag uint64, addr *Address, o
 	}
 	return int(sendLen), nil
 }
-func (d *divert) shutdown(handle uintptr, how SHUTDOWN) error {
+func (d *divert) shutdown(handle uintptr, how Shutdown) error {
 
 	r1, _, err := d.calln(
 		d.procShutdown,

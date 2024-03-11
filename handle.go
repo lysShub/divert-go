@@ -99,7 +99,7 @@ func (d *Handle) SendEx(
 	return n, errors.WithStack(err)
 }
 
-func (d *Handle) Shutdown(how SHUTDOWN) error {
+func (d *Handle) Shutdown(how Shutdown) error {
 	err := global.shutdown(d.handle, how)
 	return errors.WithStack(err)
 }

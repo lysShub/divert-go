@@ -158,7 +158,7 @@ func Test_Load_DLL(t *testing.T) {
 		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, err)
 
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.True(t, errors.Is(err, os.ErrClosed))
 		require.Nil(t, d)
 	})
@@ -208,7 +208,7 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, err)
 		defer Release()
 
-		d1, err := Open("false", NETWORK, 0, 0)
+		d1, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 		require.NoError(t, d1.Close())
 
@@ -219,7 +219,7 @@ func Test_Load_DLL(t *testing.T) {
 	})
 
 	t.Run("open", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.Nil(t, d)
 		require.True(t, errors.Is(err, os.ErrClosed))
 	})
@@ -229,7 +229,7 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, Release())
 
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.Nil(t, d)
 		require.True(t, errors.Is(err, os.ErrClosed))
 	})
@@ -250,7 +250,7 @@ func Test_Address(t *testing.T) {
 		}()
 
 		f := "remoteAddr=8.8.8.8 and remotePort=56"
-		d, err := Open(f, FLOW, 0, READ_ONLY|SNIFF)
+		d, err := Open(f, Flow, 0, ReadOnly|Sniff)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -258,8 +258,8 @@ func Test_Address(t *testing.T) {
 		n, err := d.Recv(nil, &addr)
 		require.NoError(t, err)
 		require.Zero(t, n)
-		require.Equal(t, FLOW, addr.Layer)
-		require.Equal(t, FLOW_ESTABLISHED, addr.Event)
+		require.Equal(t, Flow, addr.Layer)
+		require.Equal(t, FlowEstablishd, addr.Event)
 		require.True(t, addr.Flags.Sniffed())
 		require.False(t, addr.Flags.Loopback())
 		require.True(t, addr.Flags.Outbound())
@@ -271,12 +271,13 @@ func Test_Address(t *testing.T) {
 		// require.True(t, addr.Flags.TCPChecksum())
 		// require.True(t, addr.Flags.UDPChecksum())
 		fa := addr.Flow()
+		require.Equal(t, fa.LocalAddr(), locIP, fa.LocalAddr().String())
 		require.Equal(t, fa.RemoteAddr(), netip.AddrFrom4([4]byte{8, 8, 8, 8}), fa.RemoteAddr().String())
 	})
 
 	t.Run("network/recv", func(t *testing.T) {
 		f := "loopback"
-		d, err := Open(f, NETWORK, 0, READ_ONLY|SNIFF)
+		d, err := Open(f, Network, 0, ReadOnly|Sniff)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -285,8 +286,8 @@ func Test_Address(t *testing.T) {
 		n, err := d.Recv(b, &addr)
 		require.NoError(t, err)
 		require.NotZero(t, n)
-		require.Equal(t, NETWORK, addr.Layer)
-		require.Equal(t, NETWORK_PACKET, addr.Event)
+		require.Equal(t, Network, addr.Layer)
+		require.Equal(t, NetworkPacket, addr.Event)
 		require.True(t, addr.Flags.Sniffed())
 		require.True(t, addr.Flags.Loopback())
 		require.True(t, addr.Flags.Outbound())
@@ -303,7 +304,7 @@ func Test_Address(t *testing.T) {
 
 		go func() {
 			time.Sleep(time.Second)
-			d, err := Open("false", NETWORK, 0, WRITE_ONLY)
+			d, err := Open("false", Network, 0, WriteOnly)
 			require.NoError(t, err)
 			defer d.Close()
 
@@ -334,7 +335,7 @@ func Test_Recv_Error(t *testing.T) {
 	defer Release()
 
 	t.Run("close/recv", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 		require.NoError(t, d.Close())
 
@@ -343,7 +344,7 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/close", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 
 		{
@@ -357,7 +358,7 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/close/close", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 
 		{
@@ -373,7 +374,7 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/close/close/recv", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 
 		{
@@ -396,9 +397,9 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("shutdown/recv", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
-		require.NoError(t, d.Shutdown(BOTH))
+		require.NoError(t, d.Shutdown(Both))
 
 		n, err := d.Recv(make([]byte, 1536), nil)
 		require.True(t, errors.Is(err, os.ErrClosed))
@@ -406,12 +407,12 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/shutdown", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 
 		go func() {
 			time.Sleep(time.Second)
-			require.NoError(t, d.Shutdown(BOTH))
+			require.NoError(t, d.Shutdown(Both))
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
@@ -420,28 +421,28 @@ func Test_Recv_Error(t *testing.T) {
 	})
 
 	t.Run("recv/shutdown/shutdown", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 
 		go func() {
 			time.Sleep(time.Second)
-			require.NoError(t, d.Shutdown(BOTH))
+			require.NoError(t, d.Shutdown(Both))
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
 		require.True(t, errors.Is(err, os.ErrClosed))
 		require.Zero(t, n)
 
-		require.NoError(t, d.Shutdown(BOTH))
+		require.NoError(t, d.Shutdown(Both))
 	})
 
 	t.Run("recv/shutdown/shutdown/recv", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 
 		go func() {
 			time.Sleep(time.Second)
-			require.NoError(t, d.Shutdown(BOTH))
+			require.NoError(t, d.Shutdown(Both))
 		}()
 
 		{
@@ -450,7 +451,7 @@ func Test_Recv_Error(t *testing.T) {
 			require.Zero(t, n)
 		}
 		{
-			require.NoError(t, d.Shutdown(BOTH))
+			require.NoError(t, d.Shutdown(Both))
 		}
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
@@ -492,7 +493,7 @@ func Test_Recv(t *testing.T) {
 				"udp and localPort=%d and remotePort=%d",
 				caddr.Port(), saddr.Port(), // NOTICE: loopback packet is outbound packet
 			)
-			d, err := Open(filter, NETWORK, 0, READ_ONLY)
+			d, err := Open(filter, Network, 0, ReadOnly)
 			require.NoError(t, err)
 
 			var b = make([]byte, 1536)
@@ -512,7 +513,7 @@ func Test_Recv(t *testing.T) {
 	})
 
 	t.Run("Recv/socket", func(t *testing.T) {
-		d, err := Open("udp and remoteAddr=8.8.8.8", SOCKET, 0, SNIFF|READ_ONLY)
+		d, err := Open("udp and remoteAddr=8.8.8.8", Socket, 0, Sniff|ReadOnly)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -536,7 +537,7 @@ func Test_Recv(t *testing.T) {
 	})
 
 	t.Run("RecvCtx/cancel", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, READ_ONLY)
+		d, err := Open("false", Network, 0, ReadOnly)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -554,7 +555,7 @@ func Test_Recv(t *testing.T) {
 	})
 
 	t.Run("RecvCtx/timeout", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, READ_ONLY)
+		d, err := Open("false", Network, 0, ReadOnly)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -569,7 +570,7 @@ func Test_Recv(t *testing.T) {
 	})
 
 	t.Run("RecvCtx/network", func(t *testing.T) {
-		d, err := Open("udp and remoteAddr=8.8.8.8 and remotePort=56", NETWORK, 0, READ_ONLY)
+		d, err := Open("udp and remoteAddr=8.8.8.8 and remotePort=56", Network, 0, ReadOnly)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -610,7 +611,7 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			d, err := Open("false", NETWORK, 0, WRITE_ONLY)
+			d, err := Open("false", Network, 0, WriteOnly)
 			require.NoError(t, err)
 			defer d.Close()
 
@@ -643,7 +644,7 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			d, err := Open("false", NETWORK, 0, WRITE_ONLY)
+			d, err := Open("false", Network, 0, WriteOnly)
 			require.NoError(t, err)
 			defer d.Close()
 
@@ -676,7 +677,7 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildICMPEcho(t, caddr, saddr)
 
-			d, err := Open("false", NETWORK, 0, WRITE_ONLY)
+			d, err := Open("false", Network, 0, WriteOnly)
 			require.NoError(t, err)
 			defer d.Close()
 
@@ -689,9 +690,9 @@ func Test_Send(t *testing.T) {
 
 		d, err := Open(
 			fmt.Sprintf("icmp.Type=0 and remoteAddr=%s", saddr),
-			NETWORK,
+			Network,
 			0,
-			READ_ONLY,
+			ReadOnly,
 		)
 		require.NoError(t, err)
 		defer d.Close()
@@ -712,7 +713,7 @@ func Test_Send(t *testing.T) {
 		go func() {
 			b := buildUDP(t, caddr, saddr, []byte(msg))
 
-			d, err := Open("false", NETWORK, 0, WRITE_ONLY)
+			d, err := Open("false", Network, 0, WriteOnly)
 			require.NoError(t, err)
 			defer d.Close()
 
@@ -762,7 +763,7 @@ func Test_Auto_Handle_DF(t *testing.T) {
 			src.Addr().String(), src.Port(), dst.Addr().String(), dst.Port(),
 		)
 
-		d, err := Open(filter, NETWORK, 0, READ_ONLY)
+		d, err := Open(filter, Network, 0, ReadOnly)
 		require.NoError(t, err)
 		defer d.Close()
 
@@ -803,7 +804,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, NETWORK, p, 0)
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
@@ -854,7 +855,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, NETWORK, p, 0)
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -895,7 +896,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, NETWORK, p, 0)
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -937,7 +938,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, NETWORK, p, 0)
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -990,7 +991,7 @@ func Test_Send_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, midPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, NETWORK, p, SNIFF)
+				d, err := Open(filter, Network, p, Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -1001,7 +1002,7 @@ func Test_Send_Priority(t *testing.T) {
 			}(int16(pri))
 		}
 
-		d, err := Open("false", NETWORK, int16(midPriority), WRITE_ONLY)
+		d, err := Open("false", Network, int16(midPriority), WriteOnly)
 		require.NoError(t, err)
 		defer d.Close()
 		for rs.Load() == 0 {
@@ -1039,7 +1040,7 @@ func Test_Send_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, midPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, NETWORK, p, SNIFF)
+				d, err := Open(filter, Network, p, Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -1052,7 +1053,7 @@ func Test_Send_Priority(t *testing.T) {
 			}(int16(pri))
 		}
 
-		d, err := Open("false", NETWORK, int16(midPriority), WRITE_ONLY)
+		d, err := Open("false", Network, int16(midPriority), WriteOnly)
 		require.NoError(t, err)
 		for rs.Load() == 0 {
 			select {
@@ -1075,11 +1076,11 @@ func Test_Helper(t *testing.T) {
 	defer Release()
 
 	t.Run("format/null", func(t *testing.T) {
-		d, err := Open("false", NETWORK, 0, 0)
+		d, err := Open("false", Network, 0, 0)
 		require.NoError(t, err)
 		defer d.Close()
 
-		s, err := HelperFormatFilter("", NETWORK)
+		s, err := HelperFormatFilter("", Network)
 		require.True(t, errors.Is(err, windows.ERROR_INVALID_PARAMETER))
 		require.Zero(t, len(s))
 	})

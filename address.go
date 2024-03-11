@@ -1,18 +1,9 @@
 package divert
 
 import (
+	"encoding/binary"
 	"net/netip"
 	"unsafe"
-)
-
-type Layer uint8
-
-const (
-	NETWORK         Layer = iota // Network layer.
-	NETWORK_FORWARD              // Network layer (forwarded packets)
-	FLOW                         // Flow layer.
-	SOCKET                       // Socket layer.
-	REFLECT                      // Reflect layer.
 )
 
 type Address struct {
@@ -41,17 +32,17 @@ type Address struct {
 	reserved3 [64]byte
 }
 
-func (a *Address) Network() *DATA_NETWORK {
-	return (*DATA_NETWORK)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Network() *DateNetwork {
+	return (*DateNetwork)(unsafe.Pointer(&a.reserved3[0]))
 }
-func (a *Address) Flow() *DATA_FLOW {
-	return (*DATA_FLOW)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Flow() *DataFlow {
+	return (*DataFlow)(unsafe.Pointer(&a.reserved3[0]))
 }
-func (a *Address) Socket() *DATA_SOCKET {
-	return (*DATA_SOCKET)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Socket() *DataSocket {
+	return (*DataSocket)(unsafe.Pointer(&a.reserved3[0]))
 }
-func (a *Address) Reflect() *DATA_REFLECT {
-	return (*DATA_REFLECT)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Reflect() *DataReflect {
+	return (*DataReflect)(unsafe.Pointer(&a.reserved3[0]))
 }
 
 type Flags uint8
@@ -144,12 +135,12 @@ func (f *Flags) SetUDPChecksum(sum bool) {
 	}
 }
 
-type DATA_NETWORK struct {
+type DateNetwork struct {
 	IfIdx    uint32 // Packet's interface index.
 	SubIfIdx uint32 // Packet's sub-interface index.
 }
 
-type DATA_FLOW struct {
+type DataFlow struct {
 	EndpointId       uint64    // Endpoint ID.
 	ParentEndpointId uint64    // Parent endpoint ID.
 	ProcessId        uint32    // Process ID.
@@ -160,67 +151,38 @@ type DATA_FLOW struct {
 	Protocol         Proto     // Protocol.
 }
 
-func (d *DATA_FLOW) LocalAddr() netip.Addr {
-	if d.localAddr[3] == 0 && d.localAddr[2] == 0 && d.localAddr[1] == 0xFFFF {
-		// ipv4
-		_v := *(*[4]byte)(unsafe.Pointer(&d.localAddr[0]))
-		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
-		return netip.AddrFrom4(_v)
-	} else {
-		_v := *(*[16]byte)(unsafe.Pointer(&d.localAddr))
-		for i, j := 0, 15; i < j; i, j = i+1, j-1 {
-			_v[i], _v[j] = _v[j], _v[i]
-		}
-
-		return netip.AddrFrom16(_v)
+func (d *DataFlow) LocalAddr() netip.Addr {
+	var ip = make([]byte, 0, 16)
+	for i := 3; i >= 0; i-- {
+		ip = binary.BigEndian.AppendUint32(ip, d.localAddr[i])
 	}
+
+	addr := netip.AddrFrom16([16]byte(ip))
+	if addr.Is4In6() {
+		addr = netip.AddrFrom4(addr.As4())
+	}
+	return addr
 }
 
-func (d *DATA_FLOW) RemoteAddr() netip.Addr {
-	if d.remoteAddr[3] == 0 && d.remoteAddr[2] == 0 && d.remoteAddr[1] == 0xFFFF {
-		// ipv4
-
-		_v := *(*[4]byte)(unsafe.Pointer(&d.remoteAddr[0]))
-		// big endian  to little endian
-		_v[0], _v[1], _v[2], _v[3] = _v[3], _v[2], _v[1], _v[0]
-		return netip.AddrFrom4(_v)
-	} else {
-		_v := *(*[16]byte)(unsafe.Pointer(&d.remoteAddr))
-		// big endian  to little endian
-		for i, j := 0, 15; i < j; i, j = i+1, j-1 {
-			_v[i], _v[j] = _v[j], _v[i]
-		}
-
-		return netip.AddrFrom16(_v)
+func (d *DataFlow) RemoteAddr() netip.Addr {
+	var ip = make([]byte, 0, 16)
+	for i := 3; i >= 0; i-- {
+		ip = binary.BigEndian.AppendUint32(ip, d.remoteAddr[i])
 	}
+
+	addr := netip.AddrFrom16([16]byte(ip))
+	if addr.Is4In6() {
+		addr = netip.AddrFrom4(addr.As4())
+	}
+	return addr
 }
 
-type DATA_SOCKET = DATA_FLOW
+type DataSocket = DataFlow
 
-type DATA_REFLECT struct {
+type DataReflect struct {
 	Timestamp int64  // Handle open time.
 	ProcessId uint32 // Handle process ID.
 	Layer     Layer  // Handle layer.
 	Flags     uint64 // Handle flags.
 	Priority  int16  // Handle priority.
 }
-
-type PARAM uint32
-
-const (
-	QUEUE_LENGTH  PARAM = iota /* Packet queue length. */
-	QUEUE_TIME                 /* Packet queue time. */
-	QUEUE_SIZE                 /* Packet queue size. */
-	VERSION_MAJOR              /* Driver version (major). */
-	VERSION_MINOR              /* Driver version (minor). */
-)
-
-type SHUTDOWN uint32
-
-const (
-	RECV SHUTDOWN = iota + 1 /* Shutdown recv. */
-	SEND                     /* Shutdown send. */
-	BOTH                     /* Shutdown recv and send. */
-)
-
-const PRIORITY_HIGHEST = 30000
