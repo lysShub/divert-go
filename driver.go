@@ -73,7 +73,7 @@ func winDivertDriverInstall(sysPath string) error {
 		if err != nil {
 			return err
 		} else if event != windows.WAIT_OBJECT_0 && event != windows.WAIT_ABANDONED {
-			return fmt.Errorf("WaitForSingleObject event %d", event)
+			return errors.Errorf("WaitForSingleObject event %d", event)
 		}
 
 		var (

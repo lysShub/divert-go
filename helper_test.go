@@ -1,7 +1,6 @@
 package divert_test
 
 import (
-	"fmt"
 	"net"
 	"net/netip"
 	"testing"
@@ -58,8 +57,7 @@ func Test_Gatway(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, locIP, src)
 
-		expIdx, err := getNICIndex(locIP)
-		require.NoError(t, err)
+		expIdx := getIndex(t, locIP)
 		require.Equal(t, expIdx, idx)
 	})
 
@@ -89,40 +87,35 @@ func Test_Gatway(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, locIP, src)
 
-		expIdx, err := getNICIndex(locIP)
-		require.NoError(t, err)
+		expIdx := getIndex(t, locIP)
 		require.Equal(t, expIdx, idx)
 	})
 }
 
-func getNICIndex(addr netip.Addr) (int, error) {
+func getIndex(t *testing.T, addr netip.Addr) int {
 	ifs, err := net.Interfaces()
-	if err != nil {
-		return 0, err
-	}
+	require.NoError(t, err)
 
 	for _, i := range ifs {
 		addrs, err := i.Addrs()
-		if err != nil {
-			return 0, err
-		}
+		require.NoError(t, err)
 		for _, a := range addrs {
 			if a, ok := a.(*net.IPNet); ok {
 				_, bits := a.Mask.Size()
 				if bits == addr.BitLen() {
 					if a.IP.To4() != nil {
 						if netip.AddrFrom4([4]byte(a.IP.To4())) == addr {
-							return i.Index, nil
+							return i.Index
 						}
-
 					} else {
 						if netip.AddrFrom16([16]byte(a.IP)) == addr {
-							return i.Index, nil
+							return i.Index
 						}
 					}
 				}
 			}
 		}
 	}
-	return 0, fmt.Errorf("not found nic with %s address", addr)
+	t.Fatal("not found address")
+	return 0
 }

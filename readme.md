@@ -12,55 +12,55 @@ golang client for [windivert](https://github.com/basil00/Divert)
 package main
 
 import (
-	"fmt"
-	"log"
+    "fmt"
+    "log"
 
-	"github.com/lysShub/divert-go"
-	"gvisor.dev/gvisor/pkg/tcpip/header" // go get gvisor.dev/gvisor@go
+    "github.com/lysShub/divert-go"
+    "gvisor.dev/gvisor/pkg/tcpip/header" // go get gvisor.dev/gvisor@go
 )
 
 func main() {
-	divert.Load(divert.Mem)
-	defer divert.Release()
+    divert.Load(divert.Mem)
+    defer divert.Release()
 
-	d, err := divert.Open("tcp.Syn and !loopback", divert.Network, 0, divert.Sniff|divert.ReadOnly)
-	if err != nil {
-		log.Fatal(err)
-	}
+    d, err := divert.Open("tcp.Syn and !loopback", divert.Network, 0, divert.Sniff|divert.ReadOnly)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	var b = make([]byte, 1536)
-	var addr divert.Address
-	for {
-		n, err := d.Recv(b[:cap(b)], &addr)
-		if err != nil {
-			log.Fatal(err)
-		}
+    var b = make([]byte, 1536)
+    var addr divert.Address
+    for {
+        n, err := d.Recv(b[:cap(b)], &addr)
+        if err != nil {
+            log.Fatal(err)
+        }
 
-		if !addr.IPv6() {
-			if n >= header.IPv4MinimumSize+header.TCPMinimumSize {
-				ipHdr := header.IPv4(b[:n])
-				tcpHdr := header.TCP(ipHdr[ipHdr.HeaderLength():])
+        if !addr.IPv6() {
+            if n >= header.IPv4MinimumSize+header.TCPMinimumSize {
+                iphdr := header.IPv4(b[:n])
+                tcphdr := header.TCP(iphdr[iphdr.HeaderLength():])
 
-				fmt.Printf("%s:%d --> %s:%d \n",
-					ipHdr.SourceAddress().String(),
-					tcpHdr.SourcePort(),
-					ipHdr.DestinationAddress().String(),
-					tcpHdr.DestinationPort(),
-				)
-			}
-		} else {
-			if n >= header.IPv6MinimumSize+header.TCPMinimumSize {
-				ipHdr := header.IPv6(b[:n])
-				tcpHdr := header.TCP(ipHdr[header.IPv6MinimumSize:])
+                fmt.Printf("%s:%d --> %s:%d \n",
+                    iphdr.SourceAddress().String(),
+                    tcphdr.SourcePort(),
+                    iphdr.DestinationAddress().String(),
+                    tcphdr.DestinationPort(),
+                )
+            }
+        } else {
+            if n >= header.IPv6MinimumSize+header.TCPMinimumSize {
+                iphdr := header.IPv6(b[:n])
+                tcphdr := header.TCP(iphdr[header.IPv6MinimumSize:])
 
-				fmt.Printf("%s:%d --> %s:%d \n",
-					ipHdr.SourceAddress().String(),
-					tcpHdr.SourcePort(),
-					ipHdr.DestinationAddress().String(),
-					tcpHdr.DestinationPort(),
-				)
-			}
-		}
-	}
+                fmt.Printf("%s:%d --> %s:%d \n",
+                    iphdr.SourceAddress().String(),
+                    tcphdr.SourcePort(),
+                    iphdr.DestinationAddress().String(),
+                    tcphdr.DestinationPort(),
+                )
+            }
+        }
+    }
 }
 ```
