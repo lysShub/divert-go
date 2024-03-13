@@ -17,6 +17,10 @@ const (
 	Unknown
 )
 
+func (l Layer) dataLayer() bool {
+	return l == Network || l == NetworkForward || l == Reflect
+}
+
 type Flag uint64
 
 const (

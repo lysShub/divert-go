@@ -3,6 +3,7 @@ package divert
 import (
 	"context"
 	"syscall"
+	"unsafe"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
@@ -10,6 +11,7 @@ import (
 
 type Handle struct {
 	handle uintptr
+	layer  Layer
 }
 
 func (d *Handle) Close() error {
@@ -35,43 +37,82 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 	}
 	defer windows.CloseHandle(ol.HEvent)
 
+	if addr != nil {
+		addr.Timestamp = 0
+	}
 	err = d.RecvEx(ip, addr, ol)
-	if err != nil && !errors.Is(err, syscall.ERROR_IO_PENDING) {
-		return 0, err
+	if !errors.Is(err, syscall.ERROR_IO_PENDING) {
+		if err == nil {
+			return 0, errors.New("")
+		}
+		return 0, errors.WithStack(err)
 	}
 
-	for {
-		e, err := windows.WaitForSingleObject(ol.HEvent, 100)
-		if err != nil {
-			return 0, errors.WithStack(err)
-		}
-		switch e {
-		case windows.WAIT_OBJECT_0:
-			var m uint32
-			err = windows.GetOverlappedResult(windows.Handle(d.handle), ol, &m, true)
-			if err != nil {
-				return 0, errors.WithStack(err)
-			}
-			return int(m), nil
-		case uint32(windows.WAIT_TIMEOUT):
-			select {
-			case <-ctx.Done():
-				err = windows.CancelIoEx(windows.Handle(d.handle), ol)
-				if err != nil {
-					return 0, errors.WithStack(err)
+	var m uint32
+	for i := 0; ; i++ {
+		err := GetOverlappedResultEx(windows.Handle(d.handle), ol, &m, 100, false)
+		if err == nil {
+			notRecv := false
+			if addr != nil {
+				if addr.Timestamp == 0 {
+					notRecv = true
 				}
-				e, err := windows.WaitForSingleObject(ol.HEvent, 0)
-				if e == windows.WAIT_OBJECT_0 {
+			} else {
+				if m == 0 && d.layer.dataLayer() {
+					notRecv = true
+				}
+			}
+			if notRecv {
+				return d.RecvCtx(ctx, ip, addr)
+			}
+
+			return int(m), nil
+		} else {
+			switch err {
+			case windows.WAIT_TIMEOUT:
+				select {
+				case <-ctx.Done():
+					err = windows.CancelIoEx(windows.Handle(d.handle), ol)
+					if err != nil {
+						return 0, errors.WithStack(err)
+					}
 					return 0, errors.WithStack(ctx.Err())
-				} else {
-					return 0, errors.WithStack(err)
+				default:
 				}
 			default:
+				return 0, errors.WithStack(err)
 			}
-		default:
-			return 0, errors.Errorf("invalid WaitForSingleObject result %d", e)
 		}
 	}
+}
+
+var (
+	modkernel32               = windows.NewLazySystemDLL("kernel32.dll")
+	procGetOverlappedResultEx = modkernel32.NewProc("GetOverlappedResultEx")
+)
+
+func GetOverlappedResultEx(
+	handle windows.Handle, overlapped *windows.Overlapped,
+	numberOfBytesTransferred *uint32,
+	milliseconds uint32, alertable bool) error {
+
+	var alert uintptr = 0 // false
+	if alertable {
+		alert = 1
+	}
+
+	r1, _, err := syscall.SyscallN(
+		procGetOverlappedResultEx.Addr(),
+		uintptr(handle),
+		uintptr(unsafe.Pointer(overlapped)),
+		uintptr(unsafe.Pointer(numberOfBytesTransferred)),
+		uintptr(milliseconds),
+		alert,
+	)
+	if r1 == 0 {
+		return err
+	}
+	return nil
 }
 
 func (d *Handle) Send(

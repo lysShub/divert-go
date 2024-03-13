@@ -383,7 +383,10 @@ func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, erro
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return &Handle{handle: fd}, nil
+	return &Handle{
+		handle: fd,
+		layer:  layer,
+	}, nil
 }
 
 func HelperCompileFilter(filter string, layer Layer) (string, error) {
