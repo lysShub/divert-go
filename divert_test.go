@@ -28,15 +28,43 @@ var outboundAddr = func() *Address {
 	return &addr
 }()
 var locIP, inboundAddr = func() (netip.Addr, *Address) {
-	ip, idx, err := Gateway(netip.IPv4Unspecified())
-	if err != nil {
-		panic(err)
-	}
+	locip := func() netip.Addr {
+		c, _ := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 53})
+		return netip.MustParseAddrPort(c.LocalAddr().String()).Addr()
+	}()
+
+	ifidx := func(t *testing.T, addr netip.Addr) int {
+		ifs, err := net.Interfaces()
+		require.NoError(t, err)
+
+		for _, i := range ifs {
+			addrs, err := i.Addrs()
+			require.NoError(t, err)
+			for _, a := range addrs {
+				if a, ok := a.(*net.IPNet); ok {
+					_, bits := a.Mask.Size()
+					if bits == addr.BitLen() {
+						if a.IP.To4() != nil {
+							if netip.AddrFrom4([4]byte(a.IP.To4())) == addr {
+								return i.Index
+							}
+						} else {
+							if netip.AddrFrom16([16]byte(a.IP)) == addr {
+								return i.Index
+							}
+						}
+					}
+				}
+			}
+		}
+		t.Fatal("not found address")
+		return 0
+	}(&testing.T{}, locip)
 
 	var addr Address
 	addr.SetOutbound(false)
-	addr.Network().IfIdx = uint32(idx)
-	return ip, &addr
+	addr.Network().IfIdx = uint32(ifidx)
+	return locip, &Address{}
 }()
 
 func randPort() uint16 {

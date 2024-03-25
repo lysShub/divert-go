@@ -10,13 +10,21 @@ import (
 )
 
 type Handle struct {
-	handle uintptr
-	layer  Layer
+	handle    uintptr
+	layer     Layer
+	ctxPeriod uint32 // milliseconds
 }
 
 func (d *Handle) Close() error {
 	err := global.close(d.handle)
 	return errors.WithStack(err)
+}
+
+func (d *Handle) SetCtxPeriod(milliseconds uint32) {
+	d.ctxPeriod = milliseconds
+	if d.ctxPeriod < 5 {
+		d.ctxPeriod = 5
+	}
 }
 
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
@@ -30,6 +38,10 @@ func (d *Handle) RecvEx(ip []byte, addr *Address, ol *windows.Overlapped) error 
 }
 
 func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
+	if !d.layer.dataLayer() && addr == nil {
+		return 0, errors.WithStack(windows.ERROR_INVALID_PARAMETER)
+	}
+
 	var ol = &windows.Overlapped{}
 	ol.HEvent, err = windows.CreateEvent(nil, 0, 0, nil) // todo: use global event
 	if err != nil {
@@ -49,24 +61,21 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 	}
 
 	var m uint32
-	for i := 0; ; i++ {
-		err := GetOverlappedResultEx(windows.Handle(d.handle), ol, &m, 100, false)
+	for {
+		err := GetOverlappedResultEx(windows.Handle(d.handle), ol, &m, d.ctxPeriod, false)
 		if err == nil {
-			notRecv := false
-			if addr != nil {
-				if addr.Timestamp == 0 {
-					notRecv = true
-				}
-			} else {
-				if m == 0 && d.layer.dataLayer() {
-					notRecv = true
-				}
-			}
-			if notRecv {
-				return d.RecvCtx(ctx, ip, addr)
+			recved := false
+			if m > 0 {
+				recved = true
+			} else if addr != nil && addr.Timestamp != 0 {
+				recved = true
 			}
 
-			return int(m), nil
+			if recved {
+				return int(m), nil
+			} else {
+				return d.RecvCtx(ctx, ip, addr)
+			}
 		} else {
 			switch err {
 			case windows.WAIT_TIMEOUT:

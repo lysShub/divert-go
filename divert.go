@@ -384,8 +384,9 @@ func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, erro
 		return nil, errors.WithStack(err)
 	}
 	return &Handle{
-		handle: fd,
-		layer:  layer,
+		handle:    fd,
+		layer:     layer,
+		ctxPeriod: 100,
 	}, nil
 }
 
