@@ -564,6 +564,28 @@ func Test_Auto_Handle_DF(t *testing.T) {
 	})
 }
 
+func Test_Race_Recving_Close(t *testing.T) {
+	require.NoError(t, Load(DLL))
+	defer Release()
+
+	for i := 0; i < 0xf; i++ {
+		func() {
+			d, err := Open("false", Network, 0, ReadOnly)
+			require.NoError(t, err)
+			defer d.Close()
+
+			go func() {
+				time.Sleep(time.Second)
+				err := d.Close()
+				require.NoError(t, err)
+			}()
+			n, err := d.Recv(make([]byte, 1536), nil)
+			require.True(t, errors.Is(err, os.ErrClosed))
+			require.Zero(t, n)
+		}()
+	}
+}
+
 // test priority for recv.
 // CONCLUSION: packet alway be handle by higher priority.
 func Test_Recv_Priority(t *testing.T) {
