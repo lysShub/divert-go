@@ -387,30 +387,36 @@ func Test_Send(t *testing.T) {
 			msg   = "hello"
 		)
 
-		// client
+		var recv = make(chan struct{})
 		go func() {
-			b := buildUDP(t, caddr, saddr, []byte(msg))
-
-			d, err := Open("false", Network, 0, WriteOnly)
+			conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
 			require.NoError(t, err)
-			defer d.Close()
+			defer conn.Close()
 
-			for i := 0; i < 3; i++ {
-				_, err := d.Send(b, inboundAddr)
-				require.NoError(t, err)
-				time.Sleep(time.Second)
-			}
+			var b = make([]byte, 1536)
+			n, addr, err := conn.ReadFromUDP(b)
+			require.NoError(t, err)
+			require.Equal(t, msg, string(b[:n]))
+			require.Equal(t, caddr.Port(), uint16(addr.Port))
+			close(recv)
 		}()
 
-		conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
+		d, err := Open("false", Network, 0, WriteOnly)
 		require.NoError(t, err)
-		defer conn.Close()
+		defer d.Close()
+		b := buildUDP(t, caddr, saddr, []byte(msg))
 
-		var b = make([]byte, 1536)
-		n, addr, err := conn.ReadFromUDP(b)
-		require.NoError(t, err)
-		require.Equal(t, msg, string(b[:n]))
-		require.Equal(t, caddr.Port(), uint16(addr.Port))
+		for i := 0; ; i++ {
+			select {
+			case <-recv:
+				return
+			default:
+			}
+
+			_, err := d.Send(b, inboundAddr)
+			require.NoError(t, err)
+			time.Sleep(time.Second)
+		}
 	})
 
 	t.Run("inbound/loopback", func(t *testing.T) {

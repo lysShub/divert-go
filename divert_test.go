@@ -60,7 +60,7 @@ var locIP, inboundAddr = func() (netip.Addr, *Address) {
 	var addr Address
 	addr.SetOutbound(false)
 	addr.Network().IfIdx = uint32(ifidx)
-	return locip, &Address{}
+	return locip, &addr
 }()
 
 func randPort() uint16 {
