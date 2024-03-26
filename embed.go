@@ -1,6 +1,6 @@
 package divert
 
-type MemMode struct {
+type Mem struct {
 	DLL []byte
 	Sys []byte
 }

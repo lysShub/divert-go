@@ -12,7 +12,7 @@ var dllData []byte
 //go:embed embed/WinDivert64.sys
 var sysData []byte
 
-var Mem = MemMode{
+var DLL = Mem{
 	DLL: dllData,
 	Sys: sysData,
 }

@@ -62,7 +62,7 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 
 	var m uint32
 	for {
-		err := GetOverlappedResultEx(windows.Handle(d.handle), ol, &m, d.ctxPeriod, false)
+		err := getOverlappedResultEx(windows.Handle(d.handle), ol, &m, d.ctxPeriod, false)
 		if err == nil {
 			recved := false
 			if m > 0 {
@@ -100,7 +100,7 @@ var (
 	procGetOverlappedResultEx = modkernel32.NewProc("GetOverlappedResultEx")
 )
 
-func GetOverlappedResultEx(
+func getOverlappedResultEx(
 	handle windows.Handle, overlapped *windows.Overlapped,
 	numberOfBytesTransferred *uint32,
 	milliseconds uint32, alertable bool) error {

@@ -15,7 +15,7 @@ import (
 
 var global divert
 
-func MustLoad[T string | MemMode](p T) struct{} {
+func MustLoad[T string | Mem](p T) struct{} {
 	err := Load(p)
 	if err != nil {
 		panic(err)
@@ -23,7 +23,7 @@ func MustLoad[T string | MemMode](p T) struct{} {
 	return struct{}{}
 }
 
-func Load[T string | MemMode](p T) error {
+func Load[T string | Mem](p T) error {
 	global.Lock()
 	defer global.Unlock()
 	if global.dll != nil {
@@ -37,7 +37,7 @@ func Load[T string | MemMode](p T) error {
 		if err != nil {
 			return errors.WithStack(err)
 		}
-	case MemMode:
+	case Mem:
 		if err = driverInstall(p.Sys); err != nil {
 			return errors.WithStack(err)
 		}
@@ -333,7 +333,6 @@ func (d *divert) sendEx(handle uintptr, ip []byte, flag uint64, addr *Address, o
 	return int(sendLen), nil
 }
 func (d *divert) shutdown(handle uintptr, how Shutdown) error {
-
 	r1, _, err := d.calln(
 		d.procShutdown,
 		handle,
