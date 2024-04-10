@@ -4,7 +4,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"testing"
 	"time"
 
@@ -17,6 +16,145 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
+
+func Test_Load_DLL(t *testing.T) {
+	t.Run("embed", func(t *testing.T) {
+		e1 := Load(DLL)
+		require.NoError(t, e1)
+		require.NoError(t, Release())
+
+		e2 := Load(DLL)
+		require.NoError(t, e2)
+		require.NoError(t, Release())
+	})
+
+	t.Run("file", func(t *testing.T) {
+		e1 := Load("embed\\WinDivert64.dll")
+		require.NoError(t, e1)
+		require.NoError(t, Release())
+
+		e2 := Load("embed\\WinDivert64.dll")
+		require.NoError(t, e2)
+		require.NoError(t, Release())
+	})
+
+	t.Run("load-fail", func(t *testing.T) {
+		err := Load("C:\\Windows\\System32\\ws2_32.dll")
+		require.NotNil(t, err)
+	})
+
+	t.Run("load-fail/open", func(t *testing.T) {
+		err := Load("C:\\Windows\\System32\\ws2_32.dll")
+		require.Error(t, err)
+
+		d, err := Open("false", Network, 0, 0)
+		require.True(t, errors.Is(err, ErrNotLoad{}))
+		require.Nil(t, d)
+	})
+
+	t.Run("load-fail/release", func(t *testing.T) {
+		err := Load("C:\\Windows\\System32\\ws2_32.dll")
+		require.NotNil(t, err)
+
+		require.NoError(t, Release())
+	})
+
+	t.Run("load-fail/load", func(t *testing.T) {
+		e1 := Load("C:\\Windows\\System32\\ws2_32.dll")
+		require.NotNil(t, e1)
+		require.NoError(t, Release())
+
+		e := Load(DLL)
+		require.NoError(t, e)
+		require.NoError(t, Release())
+	})
+
+	t.Run("load/load", func(t *testing.T) {
+		e1 := Load("embed\\WinDivert64.dll")
+		require.NoError(t, e1)
+
+		e2 := Load(DLL)
+		require.True(t, errors.Is(e2, ErrLoaded{}))
+
+		require.NoError(t, Release())
+	})
+
+	t.Run("release/release", func(t *testing.T) {
+		require.NoError(t, Release())
+		require.NoError(t, Release())
+	})
+
+	t.Run("load/release/release", func(t *testing.T) {
+		err := Load(DLL)
+		require.NoError(t, err)
+
+		require.NoError(t, Release())
+		require.NoError(t, Release())
+	})
+
+	t.Run("load/open/release", func(t *testing.T) {
+		err := Load(DLL)
+		require.NoError(t, err)
+		defer Release()
+
+		d1, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		require.NoError(t, d1.Close())
+
+		require.NoError(t, Release())
+
+		_, err = d1.Recv(nil, nil)
+		require.True(t, errors.Is(err, ErrNotLoad{}))
+	})
+
+	t.Run("open", func(t *testing.T) {
+		d, err := Open("false", Network, 0, 0)
+		require.Nil(t, d)
+		require.True(t, errors.Is(err, ErrNotLoad{}))
+	})
+
+	t.Run("load/release/open", func(t *testing.T) {
+		err := Load(DLL)
+		require.NoError(t, err)
+		require.NoError(t, Release())
+
+		d, err := Open("false", Network, 0, 0)
+		require.Nil(t, d)
+		require.True(t, errors.Is(err, ErrNotLoad{}))
+	})
+}
+
+func Test_Helper(t *testing.T) {
+	require.NoError(t, Load(DLL))
+	defer Release()
+
+	t.Run("format/null", func(t *testing.T) {
+		d, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer d.Close()
+
+		s, err := HelperFormatFilter("", Network)
+		require.True(t, errors.Is(err, windows.ERROR_INVALID_PARAMETER))
+		require.Zero(t, len(s))
+	})
+}
+
+func Test_Loopback(t *testing.T) {
+	t.Run("default-src", func(t *testing.T) {
+		is := Loopback(netip.IPv4Unspecified(), locIP)
+		require.True(t, is)
+	})
+	t.Run("local", func(t *testing.T) {
+		is := Loopback(locIP, locIP)
+		require.True(t, is)
+	})
+	t.Run("private", func(t *testing.T) {
+		addr := netip.MustParseAddr("127.0.0.1")
+		is := Loopback(addr, addr)
+		require.True(t, is)
+	})
+
+}
 
 var outboundAddr = func() *Address {
 	var addr Address
@@ -150,126 +288,4 @@ func buildICMPEcho(t *testing.T, src, dst netip.Addr) []byte {
 	icmphdr.SetChecksum(^checksum.Checksum(icmphdr, 0))
 
 	return p
-}
-
-func Test_Load_DLL(t *testing.T) {
-	t.Run("embed", func(t *testing.T) {
-		e1 := Load(DLL)
-		require.NoError(t, e1)
-		require.NoError(t, Release())
-
-		e2 := Load(DLL)
-		require.NoError(t, e2)
-		require.NoError(t, Release())
-	})
-
-	t.Run("file", func(t *testing.T) {
-		e1 := Load("embed\\WinDivert64.dll")
-		require.NoError(t, e1)
-		require.NoError(t, Release())
-
-		e2 := Load("embed\\WinDivert64.dll")
-		require.NoError(t, e2)
-		require.NoError(t, Release())
-	})
-
-	t.Run("load-fail", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, err)
-	})
-
-	t.Run("load-fail/open", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, err)
-
-		d, err := Open("false", Network, 0, 0)
-		require.True(t, errors.Is(err, os.ErrClosed))
-		require.Nil(t, d)
-	})
-
-	t.Run("load-fail/release", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, err)
-
-		require.NoError(t, Release())
-	})
-
-	t.Run("load-fail/load", func(t *testing.T) {
-		e1 := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, e1)
-		require.NoError(t, Release())
-
-		e := Load(DLL)
-		require.NoError(t, e)
-		require.NoError(t, Release())
-	})
-
-	t.Run("load/load", func(t *testing.T) {
-		e1 := Load("embed\\WinDivert64.dll")
-		require.NoError(t, e1)
-
-		e2 := Load(DLL)
-		require.True(t, errors.Is(e2, ErrLoaded{}))
-
-		require.NoError(t, Release())
-	})
-
-	t.Run("release/release", func(t *testing.T) {
-		require.NoError(t, Release())
-		require.NoError(t, Release())
-	})
-
-	t.Run("load/release/release", func(t *testing.T) {
-		err := Load(DLL)
-		require.NoError(t, err)
-
-		require.NoError(t, Release())
-		require.NoError(t, Release())
-	})
-
-	t.Run("load/open/release", func(t *testing.T) {
-		err := Load(DLL)
-		require.NoError(t, err)
-		defer Release()
-
-		d1, err := Open("false", Network, 0, 0)
-		require.NoError(t, err)
-		require.NoError(t, d1.Close())
-
-		require.NoError(t, Release())
-
-		_, err = d1.Recv(nil, nil)
-		require.True(t, errors.Is(err, os.ErrClosed))
-	})
-
-	t.Run("open", func(t *testing.T) {
-		d, err := Open("false", Network, 0, 0)
-		require.Nil(t, d)
-		require.True(t, errors.Is(err, os.ErrClosed))
-	})
-
-	t.Run("load/release/open", func(t *testing.T) {
-		err := Load(DLL)
-		require.NoError(t, err)
-		require.NoError(t, Release())
-
-		d, err := Open("false", Network, 0, 0)
-		require.Nil(t, d)
-		require.True(t, errors.Is(err, os.ErrClosed))
-	})
-}
-
-func Test_Helper(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
-
-	t.Run("format/null", func(t *testing.T) {
-		d, err := Open("false", Network, 0, 0)
-		require.NoError(t, err)
-		defer d.Close()
-
-		s, err := HelperFormatFilter("", Network)
-		require.True(t, errors.Is(err, windows.ERROR_INVALID_PARAMETER))
-		require.Zero(t, len(s))
-	})
 }

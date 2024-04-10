@@ -4,6 +4,7 @@
 golang client for [windivert](https://github.com/basil00/Divert)
 
 
+[Documnet](https://reqrypt.org/windivert-doc.html)
 
 
 ##### Example:
@@ -33,6 +34,9 @@ func main() {
     for {
         n, err := d.Recv(b[:cap(b)], &addr)
         if err != nil {
+            if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+                continue
+            }
             log.Fatal(err)
         }
 
