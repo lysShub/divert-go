@@ -10,6 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 type Handle struct {
@@ -108,6 +109,7 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 	}
 	defer windows.CloseHandle(ol.HEvent)
 
+	ip[0] = 0
 	err = d.recvEx(ip, addr, nil, ol)
 	if err == syscall.ERROR_IO_PENDING {
 		if err != nil {
@@ -135,19 +137,32 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 				continue
 			}
 		case windows.WAIT_OBJECT_0:
-			var m uint32
-			err := windows.GetOverlappedResult(windows.Handle(d.handle), ol, &m, true)
-			if err != nil {
-				return 0, errors.WithStack(err)
+			if dataMode {
+				// GetOverlappedResult not work expectly, if bWait==true, possible block always,
+				// if bWait==false, possible get 0.
+				return getlen(ip)
+			} else {
+				return 0, nil
 			}
-			if m == 0 && dataMode {
-				return 0, errors.New("recv zero bytes data")
-			}
-			return int(m), nil
 		default:
 			return 0, errors.WithMessagef(err, "unexpect WaitForSingleObject event 0x%08x", e)
 		}
 	}
+}
+
+func getlen(ip []byte) (n int, err error) {
+	switch header.IPVersion(ip) {
+	case 4:
+		n = int(header.IPv4(ip).TotalLength())
+	case 6:
+		n = int(header.IPv6(ip).PayloadLength()) + header.IPv6FixedHeaderSize
+	default:
+		return 0, errors.New("invalid ip packet")
+	}
+	if n > len(ip) {
+		return 0, errors.WithStack(windows.ERROR_INSUFFICIENT_BUFFER)
+	}
+	return n, nil
 }
 
 func (d *Handle) Send(ip []byte, addr *Address) (int, error) {
