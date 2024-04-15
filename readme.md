@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-    divert.Load(divert.Mem)
+    divert.MustLoad(divert.DLL)
     defer divert.Release()
 
     d, err := divert.Open("tcp.Syn and !loopback", divert.Network, 0, divert.Sniff|divert.ReadOnly)

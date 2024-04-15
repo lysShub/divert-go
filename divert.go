@@ -18,7 +18,7 @@ var global divert
 
 func MustLoad[T string | Mem](p T) struct{} {
 	err := Load(p)
-	if err != nil {
+	if err != nil && errors.Is(err, ErrLoaded{}) {
 		panic(err)
 	}
 	return struct{}{}
