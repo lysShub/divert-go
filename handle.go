@@ -5,6 +5,7 @@ package divert
 
 import (
 	"context"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -14,9 +15,53 @@ import (
 )
 
 type Handle struct {
-	handle    uintptr
+	handle uintptr
+
+	events    events
 	layer     Layer
 	ctxPeriod uint32 // milliseconds
+}
+
+type events struct {
+	mu sync.RWMutex
+	s  []windows.Handle
+}
+
+func (g *events) get() (windows.Handle, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if len(g.s) == 0 {
+		return windows.CreateEvent(nil, 0, 0, nil)
+	} else {
+		defer func() { g.s = g.s[:len(g.s)-1] }()
+		return g.s[len(g.s)-1], nil
+	}
+}
+
+func (g *events) put(h windows.Handle) error {
+	if err := windows.ResetEvent(h); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.s = append(g.s, h)
+	return nil
+}
+
+func (g *events) close() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	var err error
+	for _, e := range g.s {
+		e := windows.CloseHandle(e)
+		if e != nil && err == nil {
+			err = e
+		}
+	}
+	return err
 }
 
 func (d *Handle) Close() error {
@@ -27,7 +72,7 @@ func (d *Handle) Close() error {
 	if r1 == 0 {
 		return handleError(e)
 	}
-	return nil
+	return handleError(d.events.close())
 }
 
 func (d *Handle) SetCtxPeriod(milliseconds uint32) {
@@ -95,6 +140,14 @@ func (d *Handle) recvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.O
 }
 
 func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
+	for {
+		n, err = d.recvCtx(ctx, ip, addr)
+		if err != windows.ERROR_NO_DATA {
+			return n, err
+		}
+	}
+}
+func (d *Handle) recvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
 	dataMode := d.layer.dataLayer()
 	if dataMode && len(ip) == 0 {
 		return 0, handleError(windows.ERROR_INVALID_PARAMETER)
@@ -103,11 +156,11 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 	}
 
 	var ol = &windows.Overlapped{}
-	ol.HEvent, err = windows.CreateEvent(nil, 0, 0, nil)
+	ol.HEvent, err = d.events.get()
 	if err != nil {
 		return 0, handleError(err)
 	}
-	defer windows.CloseHandle(ol.HEvent)
+	defer d.events.put(ol.HEvent)
 
 	ip[0] = 0
 	err = d.recvEx(ip, addr, nil, ol)
@@ -138,8 +191,12 @@ func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 			}
 		case windows.WAIT_OBJECT_0:
 			if dataMode {
-				// GetOverlappedResult not work expectly, if bWait==true, possible block always,
-				// if bWait==false, possible get 0.
+				if ip[0] == 0 {
+					return 0, windows.ERROR_NO_DATA
+				}
+
+				// GetOverlappedResult not work expectly, if bWait==true, possible wait always,
+				// if bWait==false, possible get 0/ERROR_IO_INCOMPLETE.
 				return getlen(ip)
 			} else {
 				return 0, nil
