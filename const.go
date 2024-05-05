@@ -119,7 +119,7 @@ const (
 	ROUTING  Proto = 43 // routing
 	FRAGMENT Proto = 44 // fragment
 	AH       Proto = 51 // ah
-	ICMPV6   Proto = 58 // icmpv6
+	ICMPV6   Proto = 58 // icmp6
 	NONE     Proto = 59 // none
 	DSTOPTS  Proto = 60 // dstopts
 )

@@ -4,8 +4,6 @@
 package divert
 
 import (
-	"net"
-	"net/netip"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -18,7 +16,7 @@ var global divert
 
 func MustLoad[T string | Mem](p T) struct{} {
 	err := Load(p)
-	if err != nil && errors.Is(err, ErrLoaded{}) {
+	if err != nil && !errors.Is(err, ErrLoaded{}) {
 		panic(err)
 	}
 	return struct{}{}
@@ -170,6 +168,7 @@ func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, erro
 	return &Handle{
 		handle:    r1,
 		layer:     layer,
+		priority:  priority,
 		ctxPeriod: 100,
 	}, nil
 }
@@ -233,46 +232,4 @@ func HelperFormatFilter(filter string, layer Layer) (string, error) {
 		return "", errors.WithStack(e)
 	}
 	return windows.ByteSliceToString(buf), nil
-}
-
-// The Loopback flag is set for loopback packets. Note that Windows considers any packet
-// originating from, and destined to, the current machine to be a loopback packet, so loopback
-// packets are not limited to localhost addresses. Note that WinDivert considers loopback
-// packets to be outbound only, and will not capture loopback packets on the inbound path.
-func Loopback(src, dst netip.Addr) bool {
-	var idx uint32
-	if dst.Is4() {
-		err := windows.GetBestInterfaceEx(&windows.SockaddrInet4{Addr: src.As4()}, &idx)
-		if err != nil {
-			return false
-		}
-	} else {
-		err := windows.GetBestInterfaceEx(&windows.SockaddrInet6{Addr: src.As16()}, &idx)
-		if err != nil {
-			return false
-		}
-	}
-	if idx == 0 {
-		return false
-	}
-
-	ifi := net.Interface{Index: int(idx)}
-	addrs, err := ifi.Addrs()
-	if err != nil {
-		return false
-	}
-	for _, e := range addrs {
-		if e, ok := e.(*net.IPNet); ok {
-			var addr netip.Addr
-			if e.IP.To4() != nil {
-				addr = netip.AddrFrom4([4]byte(e.IP.To4()))
-			} else {
-				addr = netip.AddrFrom16([16]byte(e.IP))
-			}
-			if addr == dst {
-				return true
-			}
-		}
-	}
-	return false
 }
