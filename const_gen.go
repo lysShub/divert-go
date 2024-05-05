@@ -48,13 +48,13 @@ const (
 	_Proto_name_2 = "udp"
 	_Proto_name_3 = "routingfragment"
 	_Proto_name_4 = "ah"
-	_Proto_name_5 = "icmpv6nonedstopts"
+	_Proto_name_5 = "icmp6nonedstopts"
 )
 
 var (
 	_Proto_index_0 = [...]uint8{0, 7, 11}
 	_Proto_index_3 = [...]uint8{0, 7, 15}
-	_Proto_index_5 = [...]uint8{0, 6, 10, 17}
+	_Proto_index_5 = [...]uint8{0, 5, 9, 16}
 )
 
 func (i Proto) String() string {

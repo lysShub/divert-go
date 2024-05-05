@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
@@ -612,7 +615,6 @@ func Test_Recving_Close(t *testing.T) {
 	}
 }
 
-// test priority for recv.
 // CONCLUSION: packet alway be handle by higher priority.
 func Test_Recv_Priority(t *testing.T) {
 	require.NoError(t, Load(DLL))
@@ -620,99 +622,114 @@ func Test_Recv_Priority(t *testing.T) {
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
-			src = netip.AddrPortFrom(locIP, uint16(randPort()))
-			dst = netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), uint16(randPort()))
-			msg = "hello"
+			hiPriority, loPriority int16 = 2, 1
+			first                  atomic.Int32
+			filter                 = "outbound and !loopback and ip"
+			baidu                  = func() tcpip.Address {
+				ips, err := net.LookupIP("baidu.com")
+				require.NoError(t, err)
+				for _, e := range ips {
+					if e = e.To4(); e != nil {
+						return tcpip.AddrFrom4([4]byte(e))
+					}
+				}
+				panic("")
+			}()
 		)
 
-		var (
-			filter = fmt.Sprintf(
-				"outbound and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
-				src.Addr(), src.Port(), dst.Addr(), dst.Port(),
-			)
-			hiPriority, loPriority = 2, 1
-			rs                     atomic.Int32
-		)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
-
-		for _, pri := range []int{hiPriority, loPriority} {
-			go func(p int16) {
-				d, err := Open(filter, Network, p, 0)
+		eg, _ := errgroup.WithContext(context.Background())
+		for _, p := range []int16{hiPriority, loPriority} {
+			pri := p
+			eg.Go(func() error {
+				var b = make(header.IPv4, 1536)
+				d, err := Open(filter, Network, pri, ReadOnly|Sniff)
 				require.NoError(t, err)
 				defer d.Close()
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
-				if err == nil {
-					rs.CompareAndSwap(0, int32(p))
+
+				for {
+					n, err := d.Recv(b[:cap(b)], nil)
+					require.NoError(t, err)
+
+					if (b[:n]).DestinationAddress() == baidu {
+						first.CompareAndSwap(0, int32(pri))
+						break
+					}
 				}
-			}(int16(pri))
+				return nil
+			})
 		}
 
-		// send udp packet
-		conn, err := net.DialUDP(
-			"udp",
-			&net.UDPAddr{IP: src.Addr().AsSlice(), Port: int(src.Port())},
-			&net.UDPAddr{IP: dst.Addr().AsSlice(), Port: int(dst.Port())},
-		)
-		require.NoError(t, err)
-		defer conn.Close()
-		for rs.Load() == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			_, err = conn.Write([]byte(msg))
-			require.NoError(t, err)
+		eg.Go(func() error {
 			time.Sleep(time.Second)
-		}
 
-		require.Equal(t, int32(hiPriority), rs.Load())
-		require.NoError(t, ctx.Err())
+			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
+			require.NoError(t, err)
+			req.Host = "baidu.com"
+			req.Header["User-Agent"] = []string{"curl"}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			return nil
+		})
+		eg.Wait()
+
+		require.Equal(t, hiPriority, int16(first.Load()))
 	})
 
 	t.Run("inbound", func(t *testing.T) {
-		ips, err := net.LookupIP("baidu.com")
-		require.NoError(t, err)
 		var (
-			dst = netip.MustParseAddr(ips[0].String())
+			hiPriority, loPriority int16 = 2, 1
+			first                  atomic.Int32
+			filter                 = "inbound and !loopback and ip"
+			baidu                  = func() tcpip.Address {
+				ips, err := net.LookupIP("baidu.com")
+				require.NoError(t, err)
+				for _, e := range ips {
+					if e = e.To4(); e != nil {
+						return tcpip.AddrFrom4([4]byte(e))
+					}
+				}
+				panic("")
+			}()
 		)
 
-		// recv inbound
-		var (
-			filter                 = fmt.Sprintf("inbound and icmp.Type=0 and remoteAddr=%s", dst)
-			hiPriority, loPriority = 2, 1
-			rs                     atomic.Int32
-		)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
-
-		for _, pri := range []int{hiPriority, loPriority} {
-			go func(p int16) {
-				d, err := Open(filter, Network, p, 0)
+		eg, _ := errgroup.WithContext(context.Background())
+		for _, p := range []int16{hiPriority, loPriority} {
+			pri := p
+			eg.Go(func() error {
+				var b = make(header.IPv4, 1536)
+				d, err := Open(filter, Network, pri, ReadOnly|Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
-				if err == nil {
-					rs.CompareAndSwap(0, int32(p))
+				for {
+					n, err := d.Recv(b[:cap(b)], nil)
+					require.NoError(t, err)
+
+					if (b[:n]).SourceAddress() == baidu {
+						first.CompareAndSwap(0, int32(pri))
+						break
+					}
 				}
-			}(int16(pri))
+				return nil
+			})
 		}
 
-		// ping baidu.com
-		for rs.Load() == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			pingOnce(t, dst.String())
+		eg.Go(func() error {
 			time.Sleep(time.Second)
-		}
 
-		require.Equal(t, int32(hiPriority), rs.Load())
-		require.NoError(t, ctx.Err())
+			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
+			require.NoError(t, err)
+			req.Host = "baidu.com"
+			req.Header["User-Agent"] = []string{"curl"}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			return nil
+		})
+		eg.Wait()
+
+		require.Equal(t, hiPriority, int16(first.Load()))
 	})
 
 	t.Run("loopback/request", func(t *testing.T) {
@@ -798,7 +815,6 @@ func Test_Recv_Priority(t *testing.T) {
 	})
 }
 
-// test priority for send.
 // CONCLUSION: send packet will be handle by equal(random) or lower(always) priority
 func Test_Send_Priority(t *testing.T) {
 	require.NoError(t, Load(DLL))

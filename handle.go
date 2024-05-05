@@ -19,6 +19,7 @@ type Handle struct {
 
 	events    events
 	layer     Layer
+	priority  int16
 	ctxPeriod uint32 // milliseconds
 }
 
@@ -74,6 +75,7 @@ func (d *Handle) Close() error {
 	}
 	return handleError(d.events.close())
 }
+func (d *Handle) Priority() int16 { return d.priority }
 
 func (d *Handle) SetCtxPeriod(milliseconds uint32) {
 	d.ctxPeriod = milliseconds

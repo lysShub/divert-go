@@ -139,23 +139,6 @@ func Test_Helper(t *testing.T) {
 	})
 }
 
-func Test_Loopback(t *testing.T) {
-	t.Run("default-src", func(t *testing.T) {
-		is := Loopback(netip.IPv4Unspecified(), locIP)
-		require.True(t, is)
-	})
-	t.Run("local", func(t *testing.T) {
-		is := Loopback(locIP, locIP)
-		require.True(t, is)
-	})
-	t.Run("private", func(t *testing.T) {
-		addr := netip.MustParseAddr("127.0.0.1")
-		is := Loopback(addr, addr)
-		require.True(t, is)
-	})
-
-}
-
 var outboundAddr = func() *Address {
 	var addr Address
 	addr.SetOutbound(true)

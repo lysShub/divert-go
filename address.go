@@ -164,6 +164,10 @@ func (d *DataFlow) LocalAddr() netip.Addr {
 	return addr
 }
 
+func (d *DataFlow) LocalAddrPort() netip.AddrPort {
+	return netip.AddrPortFrom(d.LocalAddr(), d.LocalPort)
+}
+
 func (d *DataFlow) RemoteAddr() netip.Addr {
 	var ip = make([]byte, 0, 16)
 	for i := 3; i >= 0; i-- {
@@ -175,6 +179,10 @@ func (d *DataFlow) RemoteAddr() netip.Addr {
 		addr = netip.AddrFrom4(addr.As4())
 	}
 	return addr
+}
+
+func (d *DataFlow) RemoteAddrPort() netip.AddrPort {
+	return netip.AddrPortFrom(d.RemoteAddr(), d.RemotePort)
 }
 
 type DataSocket = DataFlow
