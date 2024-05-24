@@ -410,15 +410,15 @@ func Test_Send(t *testing.T) {
 
 	t.Run("inbound", func(t *testing.T) {
 		var (
-			saddr = netip.AddrPortFrom(locIP, randPort())
-			caddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), randPort())
+			caddr = netip.AddrPortFrom(locIP, randPort())
+			saddr = netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), randPort())
 			msg   = "hello"
 		)
 
 		eg, _ := errgroup.WithContext(context.Background())
 
 		eg.Go(func() error {
-			conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
+			conn, err := net.DialUDP("udp", toUDPAddr(caddr), toUDPAddr(saddr))
 			require.NoError(t, err)
 			defer conn.Close()
 
@@ -426,20 +426,21 @@ func Test_Send(t *testing.T) {
 			n, addr, err := conn.ReadFromUDP(b)
 			require.NoError(t, err)
 			require.Equal(t, msg, string(b[:n]))
-			require.Equal(t, caddr.Port(), uint16(addr.Port))
+			require.Equal(t, saddr.Port(), uint16(addr.Port))
 			return nil
 		})
 
 		eg.Go(func() error {
-			time.Sleep(time.Second)
-
 			d, err := Open("false", Network, 0, WriteOnly)
 			require.NoError(t, err)
 			defer d.Close()
-			b := buildUDP(t, caddr, saddr, []byte(msg))
+			b := buildUDP(t, saddr, caddr, []byte(msg))
 
-			_, err = d.Send(b, inboundAddr)
-			require.NoError(t, err)
+			for i := 0; i < 3; i++ {
+				_, err = d.Send(b, inboundAddr)
+				require.NoError(t, err)
+				time.Sleep(time.Second)
+			}
 			return nil
 		})
 		eg.Wait()
