@@ -63,7 +63,12 @@ func Test_Address(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		var b = make([]byte, 0xffff)
+		go func() {
+			time.Sleep(time.Second)
+			pingOnce(t, "127.0.0.1")
+		}()
+
+		var b = make([]byte, 1536)
 		var addr Address
 		n, err := d.Recv(b, &addr)
 		require.NoError(t, err)
