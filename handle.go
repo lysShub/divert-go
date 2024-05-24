@@ -5,6 +5,7 @@ package divert
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -101,6 +102,9 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 		uintptr(unsafe.Pointer(addr)),
 	)
 	if r1 == 0 {
+
+		fmt.Println("msg", len(ip), header.IPv4(ip).TotalLength())
+
 		return 0, handleError(e)
 	}
 

@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os/exec"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -640,18 +639,6 @@ func Test_Recv_Priority(t *testing.T) {
 	require.NoError(t, Load(DLL))
 	defer Release()
 
-	{
-		fmt.Println()
-		fmt.Println()
-		out, err := exec.Command("cmd", "/C", "netsh", "interface", "ipv4", "show", "interface").CombinedOutput()
-		require.NoError(t, err)
-		fmt.Println(string(out))
-		fmt.Println()
-		fmt.Println()
-		fmt.Println()
-
-	}
-
 	t.Run("outbound", func(t *testing.T) {
 		var (
 			hiPriority, loPriority int16 = 2, 1
@@ -699,7 +686,6 @@ func Test_Recv_Priority(t *testing.T) {
 			req.Close = true
 			req.Host = "baidu.com"
 			req.Header["User-Agent"] = []string{"curl"}
-			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -754,6 +740,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
 			require.NoError(t, err)
+			req.Close = true
 			req.Host = "baidu.com"
 			req.Header["User-Agent"] = []string{"curl"}
 			resp, err := http.DefaultClient.Do(req)
