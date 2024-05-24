@@ -415,8 +415,9 @@ func Test_Send(t *testing.T) {
 			msg   = "hello"
 		)
 
-		var recv = make(chan struct{})
-		go func() {
+		eg, _ := errgroup.WithContext(context.Background())
+
+		eg.Go(func() error {
 			conn, err := net.DialUDP("udp", toUDPAddr(saddr), toUDPAddr(caddr))
 			require.NoError(t, err)
 			defer conn.Close()
@@ -426,25 +427,22 @@ func Test_Send(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, msg, string(b[:n]))
 			require.Equal(t, caddr.Port(), uint16(addr.Port))
-			close(recv)
-		}()
+			return nil
+		})
 
-		d, err := Open("false", Network, 0, WriteOnly)
-		require.NoError(t, err)
-		defer d.Close()
-		b := buildUDP(t, caddr, saddr, []byte(msg))
-
-		for i := 0; ; i++ {
-			select {
-			case <-recv:
-				return
-			default:
-			}
-
-			_, err := d.Send(b, inboundAddr)
-			require.NoError(t, err)
+		eg.Go(func() error {
 			time.Sleep(time.Second)
-		}
+
+			d, err := Open("false", Network, 0, WriteOnly)
+			require.NoError(t, err)
+			defer d.Close()
+			b := buildUDP(t, caddr, saddr, []byte(msg))
+
+			_, err = d.Send(b, inboundAddr)
+			require.NoError(t, err)
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("inbound/loopback", func(t *testing.T) {
