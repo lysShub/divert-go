@@ -667,6 +667,9 @@ func Test_Recv_Priority(t *testing.T) {
 
 				for {
 					n, err := d.Recv(b[:cap(b)], nil)
+					if err != nil {
+						fmt.Println("TotalLength", b.TotalLength())
+					}
 					require.NoError(t, err)
 
 					if (b[:n]).DestinationAddress() == baidu {
