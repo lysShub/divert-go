@@ -668,7 +668,7 @@ func Test_Recv_Priority(t *testing.T) {
 				for {
 					n, err := d.Recv(b[:cap(b)], nil)
 					if err != nil {
-						fmt.Println("TotalLength", b.TotalLength())
+						fmt.Println("TotalLength", b.TotalLength(), b.Flags())
 					}
 					require.NoError(t, err)
 
