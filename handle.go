@@ -5,7 +5,6 @@ package divert
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"syscall"
 	"unsafe"
