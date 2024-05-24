@@ -63,7 +63,7 @@ func Test_Address(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		var b = make([]byte, 1536)
+		var b = make([]byte, 0xffff)
 		var addr Address
 		n, err := d.Recv(b, &addr)
 		require.NoError(t, err)
@@ -593,8 +593,9 @@ func Test_Recving_Close(t *testing.T) {
 
 	for i := 0; i < 0xf; i++ {
 		func() {
-			d, err := Open("true", Network, 0, ReadOnly)
+			d, err := Open("!loopback", Network, 0, ReadOnly)
 			require.NoError(t, err)
+			defer d.Close()
 
 			go func() {
 				time.Sleep(time.Second)
