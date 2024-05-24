@@ -102,7 +102,11 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 		uintptr(unsafe.Pointer(addr)),
 	)
 	if r1 == 0 {
-
+		n := len(ip)
+		if n > 20 {
+			n = 20
+		}
+		fmt.Printf("%#v", ip[:n])
 		fmt.Println("msg", len(ip), header.IPv4(ip).TotalLength())
 
 		return 0, handleError(e)
