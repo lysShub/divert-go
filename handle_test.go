@@ -605,10 +605,11 @@ func Test_Recving_Close(t *testing.T) {
 			require.NoError(t, err)
 			defer d.Close()
 
-			go func() {
+			wg.Go(func() error {
 				time.Sleep(time.Second)
 				require.NoError(t, d.Close())
-			}()
+				return nil
+			})
 
 			var b = make([]byte, 1536)
 			for {
@@ -623,6 +624,8 @@ func Test_Recving_Close(t *testing.T) {
 			}
 		})
 	}
+
+	wg.Wait()
 }
 
 // CONCLUSION: packet alway be handle by higher priority.
