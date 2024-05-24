@@ -4,12 +4,9 @@
 package divert
 
 import (
-	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -27,30 +24,11 @@ import (
 var path = "embed\\WinDivert64.dll"
 
 func Test_Gofmt(t *testing.T) {
-
-	fh1, err := os.Open("a.go")
-	require.NoError(t, err)
-	before, err := io.ReadAll(fh1)
-	require.NoError(t, err)
-	require.NoError(t, fh1.Close())
-
 	cmd := exec.Command("cmd", "/C", "gofmt", "-l", "-w", `.`)
 	out, err := cmd.CombinedOutput()
 
-	{
-		fh2, err := os.Open("a.go")
-		require.NoError(t, err)
-		after, err := io.ReadAll(fh2)
-		require.NoError(t, err)
-		require.NoError(t, fh2.Close())
-
-		fmt.Println(before)
-		fmt.Println(after)
-	}
-
 	require.NoError(t, err)
 	require.Empty(t, string(out))
-
 }
 
 func Test_Load_DLL(t *testing.T) {
