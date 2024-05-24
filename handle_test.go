@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -604,6 +605,8 @@ func Test_Recving_Close(t *testing.T) {
 
 	for i := 0; i < 0xf; i++ {
 		wg.Go(func() error {
+			runtime.LockOSThread()
+
 			d, err := Open("!loopback", Network, 0, ReadOnly)
 			require.NoError(t, err)
 			defer d.Close()
