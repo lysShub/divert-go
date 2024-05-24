@@ -677,6 +677,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
 			require.NoError(t, err)
+			req.Close = true
 			req.Host = "baidu.com"
 			req.Header["User-Agent"] = []string{"curl"}
 			resp, err := http.DefaultClient.Do(req)
