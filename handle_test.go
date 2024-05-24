@@ -712,7 +712,7 @@ func Test_Recv_Priority(t *testing.T) {
 			pri := p
 			eg.Go(func() error {
 				var b = make(header.IPv4, 1536)
-				d, err := Open(filter, Network, pri, ReadOnly|Sniff)
+				d, err := Open(filter, Network, pri, ReadOnly)
 				require.NoError(t, err)
 				defer d.Close()
 
