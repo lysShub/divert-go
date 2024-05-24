@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -18,6 +19,13 @@ import (
 )
 
 var path = "embed\\WinDivert64.dll"
+
+func Test_Gofmt(t *testing.T) {
+	cmd := exec.Command("cmd", "/C", "gofmt", "-l", "-w", `.`)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err)
+	require.Empty(t, string(out))
+}
 
 func Test_Load_DLL(t *testing.T) {
 	runLoad(t, "embed", func(t *testing.T) {

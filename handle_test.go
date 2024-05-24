@@ -169,7 +169,8 @@ func Test_Recv_Error(t *testing.T) {
 		defer d.Close()
 
 		{
-			go func() {				time.Sleep(time.Second)
+			go func() {
+				time.Sleep(time.Second)
 				require.NoError(t, d.Close())
 			}()
 			{
