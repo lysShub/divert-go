@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os/exec"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -638,6 +639,18 @@ func Test_Recving_Close(t *testing.T) {
 func Test_Recv_Priority(t *testing.T) {
 	require.NoError(t, Load(DLL))
 	defer Release()
+
+	{
+		fmt.Println()
+		fmt.Println()
+		out, err := exec.Command("cmd", "/C", "netsh", "interface", "ipv4", "show", "interface").CombinedOutput()
+		require.NoError(t, err)
+		fmt.Println(string(out))
+		fmt.Println()
+		fmt.Println()
+		fmt.Println()
+
+	}
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
