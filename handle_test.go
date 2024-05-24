@@ -368,7 +368,8 @@ func Test_Recv(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		ctx, _ := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 
 		s := time.Now()
 		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
@@ -410,14 +411,15 @@ func Test_Send(t *testing.T) {
 	defer Release()
 
 	t.Run("inbound", func(t *testing.T) {
+		{
+			fmt.Println("local ip", locIP.String())
 
-		fmt.Println("local ip", locIP.String())
-
-		fmt.Println("---------------------")
-		out, err := exec.Command("cmd", "/C", "ipconfig").Output()
-		require.NoError(t, err)
-		fmt.Println(string(out))
-		fmt.Println("---------------------")
+			fmt.Println("---------------------")
+			out, err := exec.Command("cmd", "/C", "ipconfig").Output()
+			require.NoError(t, err)
+			fmt.Println(string(out))
+			fmt.Println("---------------------")
+		}
 
 		var (
 			caddr = netip.AddrPortFrom(locIP, randPort())
