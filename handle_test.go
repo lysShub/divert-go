@@ -660,16 +660,13 @@ func Test_Recv_Priority(t *testing.T) {
 		for _, p := range []int16{hiPriority, loPriority} {
 			pri := p
 			eg.Go(func() error {
-				var b = make(header.IPv4, 1536)
+				var b = make(header.IPv4, 2048)
 				d, err := Open(filter, Network, pri, ReadOnly|Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
 				for {
 					n, err := d.Recv(b[:cap(b)], nil)
-					if err != nil {
-						fmt.Println("TotalLength", b.TotalLength(), b.Flags())
-					}
 					require.NoError(t, err)
 
 					if (b[:n]).DestinationAddress() == baidu {
