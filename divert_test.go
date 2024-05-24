@@ -33,17 +33,21 @@ func Test_Gofmt(t *testing.T) {
 
 	cmd := exec.Command("cmd", "/C", "gofmt", "-l", "-w", `.`)
 	out, err := cmd.CombinedOutput()
+
+	{
+		fh2, err := os.Open("a.go")
+		require.NoError(t, err)
+		after, err := io.ReadAll(fh2)
+		require.NoError(t, err)
+		require.NoError(t, fh2.Close())
+
+		fmt.Println(before)
+		fmt.Println(after)
+	}
+
 	require.NoError(t, err)
 	require.Empty(t, string(out))
 
-	fh2, err := os.Open("a.go")
-	require.NoError(t, err)
-	after, err := io.ReadAll(fh2)
-	require.NoError(t, err)
-	require.NoError(t, fh2.Close())
-
-	fmt.Println(before)
-	fmt.Println(after)
 }
 
 func Test_Load_DLL(t *testing.T) {
