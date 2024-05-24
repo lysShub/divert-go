@@ -1,9 +1,13 @@
+//go:build windows
+// +build windows
+
 package divert
 
 import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -17,8 +21,18 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
+var path = "embed\\WinDivert64.dll"
+
+func Test_Gofmt(t *testing.T) {
+	cmd := exec.Command("cmd", "/C", "gofmt", "-l", "-w", `.`)
+	out, err := cmd.CombinedOutput()
+
+	require.NoError(t, err)
+	require.Empty(t, string(out))
+}
+
 func Test_Load_DLL(t *testing.T) {
-	t.Run("embed", func(t *testing.T) {
+	runLoad(t, "embed", func(t *testing.T) {
 		e1 := Load(DLL)
 		require.NoError(t, e1)
 		require.NoError(t, Release())
@@ -28,22 +42,22 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, Release())
 	})
 
-	t.Run("file", func(t *testing.T) {
-		e1 := Load("embed\\WinDivert64.dll")
+	runLoad(t, "file", func(t *testing.T) {
+		e1 := Load(path)
 		require.NoError(t, e1)
 		require.NoError(t, Release())
 
-		e2 := Load("embed\\WinDivert64.dll")
+		e2 := Load(path)
 		require.NoError(t, e2)
 		require.NoError(t, Release())
 	})
 
-	t.Run("load-fail", func(t *testing.T) {
+	runLoad(t, "load-fail", func(t *testing.T) {
 		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, err)
 	})
 
-	t.Run("load-fail/open", func(t *testing.T) {
+	runLoad(t, "load-fail/open", func(t *testing.T) {
 		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.Error(t, err)
 
@@ -52,14 +66,14 @@ func Test_Load_DLL(t *testing.T) {
 		require.Nil(t, d)
 	})
 
-	t.Run("load-fail/release", func(t *testing.T) {
+	runLoad(t, "load-fail/release", func(t *testing.T) {
 		err := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, err)
 
 		require.NoError(t, Release())
 	})
 
-	t.Run("load-fail/load", func(t *testing.T) {
+	runLoad(t, "load-fail/load", func(t *testing.T) {
 		e1 := Load("C:\\Windows\\System32\\ws2_32.dll")
 		require.NotNil(t, e1)
 		require.NoError(t, Release())
@@ -69,8 +83,8 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, Release())
 	})
 
-	t.Run("load/load", func(t *testing.T) {
-		e1 := Load("embed\\WinDivert64.dll")
+	runLoad(t, "load/load", func(t *testing.T) {
+		e1 := Load(path)
 		require.NoError(t, e1)
 
 		e2 := Load(DLL)
@@ -79,12 +93,12 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, Release())
 	})
 
-	t.Run("release/release", func(t *testing.T) {
+	runLoad(t, "release/release", func(t *testing.T) {
 		require.NoError(t, Release())
 		require.NoError(t, Release())
 	})
 
-	t.Run("load/release/release", func(t *testing.T) {
+	runLoad(t, "load/release/release", func(t *testing.T) {
 		err := Load(DLL)
 		require.NoError(t, err)
 
@@ -92,7 +106,7 @@ func Test_Load_DLL(t *testing.T) {
 		require.NoError(t, Release())
 	})
 
-	t.Run("load/open/release", func(t *testing.T) {
+	runLoad(t, "load/open/release", func(t *testing.T) {
 		err := Load(DLL)
 		require.NoError(t, err)
 		defer Release()
@@ -107,13 +121,13 @@ func Test_Load_DLL(t *testing.T) {
 		require.True(t, errors.Is(err, ErrNotLoad{}))
 	})
 
-	t.Run("open", func(t *testing.T) {
+	runLoad(t, "open", func(t *testing.T) {
 		d, err := Open("false", Network, 0, 0)
 		require.Nil(t, d)
 		require.True(t, errors.Is(err, ErrNotLoad{}))
 	})
 
-	t.Run("load/release/open", func(t *testing.T) {
+	runLoad(t, "load/release/open", func(t *testing.T) {
 		err := Load(DLL)
 		require.NoError(t, err)
 		require.NoError(t, Release())
@@ -121,6 +135,42 @@ func Test_Load_DLL(t *testing.T) {
 		d, err := Open("false", Network, 0, 0)
 		require.Nil(t, d)
 		require.True(t, errors.Is(err, ErrNotLoad{}))
+	})
+}
+
+func runLoad(t *testing.T, name string, fn func(t *testing.T)) {
+	t.Run(name, func(t *testing.T) {
+		fn(t)
+		Release()
+	})
+}
+
+func Test_MustLoad_DLL(t *testing.T) {
+	runLoad(t, "embed", func(t *testing.T) {
+		MustLoad(DLL)
+		Release()
+
+		MustLoad(DLL)
+
+		MustLoad(DLL)
+	})
+
+	runLoad(t, "file", func(t *testing.T) {
+		MustLoad(path)
+		Release()
+
+		MustLoad(path)
+
+		MustLoad(path)
+	})
+
+	runLoad(t, "load-fail", func(t *testing.T) {
+		defer func() {
+			e := recover()
+			require.NotNil(t, e, e)
+		}()
+
+		MustLoad("C:\\Windows\\System32\\ws2_32.dll")
 	})
 }
 

@@ -184,7 +184,7 @@ func (d *Handle) recvCtx(ctx context.Context, ip []byte, addr *Address) (n int, 
 			select {
 			case <-ctx.Done():
 				err = windows.CancelIoEx(windows.Handle(d.handle), ol)
-				if err != nil {
+				if err != nil && err != windows.ERROR_NOT_FOUND {
 					return 0, errors.WithStack(err)
 				}
 				return 0, handleError(ctx.Err())
