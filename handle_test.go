@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -605,8 +604,6 @@ func Test_Recving_Close(t *testing.T) {
 
 	for i := 0; i < 0xf; i++ {
 		wg.Go(func() error {
-			runtime.LockOSThread()
-
 			d, err := Open("!loopback", Network, 0, ReadOnly)
 			require.NoError(t, err)
 			defer d.Close()
@@ -686,6 +683,7 @@ func Test_Recv_Priority(t *testing.T) {
 			req.Close = true
 			req.Host = "baidu.com"
 			req.Header["User-Agent"] = []string{"curl"}
+			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
