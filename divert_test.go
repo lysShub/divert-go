@@ -21,8 +21,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-var path = "embed\\WinDivert64.dll"
-
 func Test_Gofmt(t *testing.T) {
 	cmd := exec.Command("cmd", "/C", "gofmt", "-l", "-w", `.`)
 	out, err := cmd.CombinedOutput()
@@ -32,151 +30,37 @@ func Test_Gofmt(t *testing.T) {
 }
 
 func Test_Load_DLL(t *testing.T) {
-	runLoad(t, "embed", func(t *testing.T) {
-		e1 := Load(DLL)
-		require.NoError(t, e1)
-		require.NoError(t, Release())
-
-		e2 := Load(DLL)
-		require.NoError(t, e2)
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "file", func(t *testing.T) {
-		e1 := Load(path)
-		require.NoError(t, e1)
-		require.NoError(t, Release())
-
-		e2 := Load(path)
-		require.NoError(t, e2)
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "load-fail", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, err)
-	})
-
-	runLoad(t, "load-fail/open", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.Error(t, err)
-
-		d, err := Open("false", Network, 0, 0)
-		require.True(t, errors.Is(err, ErrNotLoad{}))
-		require.Nil(t, d)
-	})
-
-	runLoad(t, "load-fail/release", func(t *testing.T) {
-		err := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, err)
-
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "load-fail/load", func(t *testing.T) {
-		e1 := Load("C:\\Windows\\System32\\ws2_32.dll")
-		require.NotNil(t, e1)
-		require.NoError(t, Release())
-
-		e := Load(DLL)
-		require.NoError(t, e)
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "load/load", func(t *testing.T) {
-		e1 := Load(path)
-		require.NoError(t, e1)
-
-		e2 := Load(DLL)
-		require.True(t, errors.Is(e2, ErrLoaded{}))
-
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "release/release", func(t *testing.T) {
-		require.NoError(t, Release())
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "load/release/release", func(t *testing.T) {
-		err := Load(DLL)
-		require.NoError(t, err)
-
-		require.NoError(t, Release())
-		require.NoError(t, Release())
-	})
-
-	runLoad(t, "load/open/release", func(t *testing.T) {
-		err := Load(DLL)
-		require.NoError(t, err)
-		defer Release()
-
-		d1, err := Open("false", Network, 0, 0)
-		require.NoError(t, err)
-		require.NoError(t, d1.Close())
-
-		require.NoError(t, Release())
-
-		_, err = d1.Recv(nil, nil)
-		require.True(t, errors.Is(err, ErrNotLoad{}))
-	})
-
-	runLoad(t, "open", func(t *testing.T) {
-		d, err := Open("false", Network, 0, 0)
-		require.Nil(t, d)
-		require.True(t, errors.Is(err, ErrNotLoad{}))
-	})
-
-	runLoad(t, "load/release/open", func(t *testing.T) {
-		err := Load(DLL)
-		require.NoError(t, err)
-		require.NoError(t, Release())
-
-		d, err := Open("false", Network, 0, 0)
-		require.Nil(t, d)
-		require.True(t, errors.Is(err, ErrNotLoad{}))
-	})
-}
-
-func runLoad(t *testing.T, name string, fn func(t *testing.T)) {
-	t.Run(name, func(t *testing.T) {
-		fn(t)
-		Release()
-	})
-}
-
-func Test_MustLoad_DLL(t *testing.T) {
-	runLoad(t, "embed", func(t *testing.T) {
-		MustLoad(DLL)
-		Release()
-
+	t.Run("reset-mem", func(t *testing.T) {
+		MustLoad("test.dll")
 		MustLoad(DLL)
 
+		h, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer h.Close()
+	})
+
+	t.Run("reset-file", func(t *testing.T) {
+		MustLoad(Mem{DLL: make([]byte, 8), Sys: sysData})
+		MustLoad("embed\\WinDivert64.dll")
+
+		h, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer h.Close()
+	})
+
+	t.Run("loaded", func(t *testing.T) {
 		MustLoad(DLL)
-	})
+		h, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer h.Close()
 
-	runLoad(t, "file", func(t *testing.T) {
-		MustLoad(path)
-		Release()
-
-		MustLoad(path)
-
-		MustLoad(path)
-	})
-
-	runLoad(t, "load-fail", func(t *testing.T) {
-		defer func() {
-			e := recover()
-			require.NotNil(t, e, e)
-		}()
-
-		MustLoad("C:\\Windows\\System32\\ws2_32.dll")
+		err = Load(DLL)
+		require.True(t, errors.Is(err, ErrLoaded{}))
 	})
 }
 
 func Test_Helper(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("format/null", func(t *testing.T) {
 		d, err := Open("false", Network, 0, 0)

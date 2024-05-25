@@ -4,85 +4,31 @@
 package divert
 
 import (
-	"context"
-	"sync"
 	"syscall"
 	"unsafe"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 type Handle struct {
 	handle uintptr
 
-	events    events
-	layer     Layer
-	priority  int16
-	ctxPeriod uint32 // milliseconds
-}
-
-type events struct {
-	mu sync.RWMutex
-	s  []windows.Handle
-}
-
-func (g *events) get() (windows.Handle, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	if len(g.s) == 0 {
-		return windows.CreateEvent(nil, 0, 0, nil)
-	} else {
-		defer func() { g.s = g.s[:len(g.s)-1] }()
-		return g.s[len(g.s)-1], nil
-	}
-}
-
-func (g *events) put(h windows.Handle) error {
-	if err := windows.ResetEvent(h); err != nil {
-		return err
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	g.s = append(g.s, h)
-	return nil
-}
-
-func (g *events) close() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	var err error
-	for _, e := range g.s {
-		e := windows.CloseHandle(e)
-		if e != nil && err == nil {
-			err = e
-		}
-	}
-	return err
+	layer    Layer
+	priority int16
 }
 
 func (d *Handle) Close() error {
-	r1, _, e := global.calln(
-		global.procClose,
+	r1, _, e := syscall.SyscallN(
+		procClose.Addr(),
 		d.handle,
 	)
 	if r1 == 0 {
 		return handleError(e)
 	}
-	return handleError(d.events.close())
+	return nil
 }
 func (d *Handle) Priority() int16 { return d.priority }
-
-func (d *Handle) SetCtxPeriod(milliseconds uint32) {
-	d.ctxPeriod = milliseconds
-	if d.ctxPeriod < 5 {
-		d.ctxPeriod = 5
-	}
-}
 
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 	var recvLen uint32
@@ -92,8 +38,8 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
-	r1, _, e := global.calln(
-		global.procRecv,
+	r1, _, e := syscall.SyscallN(
+		procRecv.Addr(),
 		d.handle,
 		dataPtr,
 		uintptr(len(ip)),
@@ -111,21 +57,13 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 // notice: recvLen not work, use windows.GetOverlappedResult
 // todo: support batch recv
 func (d *Handle) RecvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.Overlapped) error {
-	err := d.recvEx(ip, addr, recvLen, ol)
-	if err != nil {
-		return handleError(err)
-	}
-	return nil
-}
-
-func (d *Handle) recvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.Overlapped) error {
 	var ipPtr uintptr
 	if len(ip) > 0 {
 		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
 	}
 
-	r1, _, e := global.calln(
-		global.procRecvEx,
+	r1, _, e := syscall.SyscallN(
+		procRecvEx.Addr(),
 		d.handle,
 		ipPtr,                            // pPacket
 		uintptr(len(ip)),                 // packetLen
@@ -136,92 +74,9 @@ func (d *Handle) recvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.O
 		uintptr(unsafe.Pointer(ol)),      // lpOverlapped
 	)
 	if r1 == 0 {
-		return e
+		return handleError(e)
 	}
 	return nil
-}
-
-func (d *Handle) RecvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
-	for {
-		n, err = d.recvCtx(ctx, ip, addr)
-		if err != windows.ERROR_NO_DATA {
-			return n, err
-		}
-	}
-}
-func (d *Handle) recvCtx(ctx context.Context, ip []byte, addr *Address) (n int, err error) {
-	dataMode := d.layer.dataLayer()
-	if dataMode && len(ip) == 0 {
-		return 0, handleError(windows.ERROR_INVALID_PARAMETER)
-	} else if !dataMode && addr == nil {
-		return 0, handleError(windows.ERROR_INVALID_PARAMETER)
-	}
-
-	var ol = &windows.Overlapped{}
-	ol.HEvent, err = d.events.get()
-	if err != nil {
-		return 0, handleError(err)
-	}
-	defer d.events.put(ol.HEvent)
-
-	ip[0] = 0
-	err = d.recvEx(ip, addr, nil, ol)
-	if err == syscall.ERROR_IO_PENDING {
-		if err != nil {
-			return 0, errors.New("expect ERROR_IO_PENDING")
-		}
-		return 0, handleError(err)
-	}
-
-	for {
-		e, err := windows.WaitForSingleObject(ol.HEvent, d.ctxPeriod)
-		if err != nil {
-			return 0, errors.WithStack(err)
-		}
-
-		switch e {
-		case uint32(windows.WAIT_TIMEOUT):
-			select {
-			case <-ctx.Done():
-				err = windows.CancelIoEx(windows.Handle(d.handle), ol)
-				if err != nil && err != windows.ERROR_NOT_FOUND {
-					return 0, errors.WithStack(err)
-				}
-				return 0, handleError(ctx.Err())
-			default:
-				continue
-			}
-		case windows.WAIT_OBJECT_0:
-			if dataMode {
-				if ip[0] == 0 {
-					return 0, windows.ERROR_NO_DATA
-				}
-
-				// GetOverlappedResult not work expectly, if bWait==true, possible wait always,
-				// if bWait==false, possible get 0/ERROR_IO_INCOMPLETE.
-				return getlen(ip)
-			} else {
-				return 0, nil
-			}
-		default:
-			return 0, errors.WithMessagef(err, "unexpect WaitForSingleObject event 0x%08x", e)
-		}
-	}
-}
-
-func getlen(ip []byte) (n int, err error) {
-	switch header.IPVersion(ip) {
-	case 4:
-		n = int(header.IPv4(ip).TotalLength())
-	case 6:
-		n = int(header.IPv6(ip).PayloadLength()) + header.IPv6FixedHeaderSize
-	default:
-		return 0, errors.New("invalid ip packet")
-	}
-	if n > len(ip) {
-		return 0, errors.WithStack(windows.ERROR_INSUFFICIENT_BUFFER)
-	}
-	return n, nil
 }
 
 func (d *Handle) Send(ip []byte, addr *Address) (int, error) {
@@ -230,8 +85,8 @@ func (d *Handle) Send(ip []byte, addr *Address) (int, error) {
 	}
 
 	var n uint32
-	r1, _, e := global.calln(
-		global.procSend,
+	r1, _, e := syscall.SyscallN(
+		procSend.Addr(),
 		d.handle, // handle
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),              // packetLen
@@ -252,8 +107,8 @@ func (d *Handle) SendEx(ip []byte, flag uint64, addr *Address, ol *windows.Overl
 	var n uint32
 
 	// todo: support batch
-	r1, _, e := global.calln(
-		global.procSendEx,
+	r1, _, e := syscall.SyscallN(
+		procSendEx.Addr(),
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),              // packetLen
@@ -270,8 +125,8 @@ func (d *Handle) SendEx(ip []byte, flag uint64, addr *Address, ol *windows.Overl
 }
 
 func (d *Handle) Shutdown(how Shutdown) error {
-	r1, _, e := global.calln(
-		global.procShutdown,
+	r1, _, e := syscall.SyscallN(
+		procShutdown.Addr(),
 		d.handle,
 		uintptr(how),
 	)
@@ -282,8 +137,8 @@ func (d *Handle) Shutdown(how Shutdown) error {
 }
 
 func (d *Handle) SetParam(param PARAM, value uint64) error {
-	r1, _, e := global.calln(
-		global.procSetParam,
+	r1, _, e := syscall.SyscallN(
+		procSetParam.Addr(),
 		d.handle,
 		uintptr(param),
 		uintptr(value),
@@ -295,8 +150,8 @@ func (d *Handle) SetParam(param PARAM, value uint64) error {
 }
 
 func (d *Handle) GetParam(param PARAM) (value uint64, err error) {
-	r1, _, e := global.calln(
-		global.procGetParam,
+	r1, _, e := syscall.SyscallN(
+		procGetParam.Addr(),
 		d.handle,
 		uintptr(param),
 		uintptr(unsafe.Pointer(&value)),

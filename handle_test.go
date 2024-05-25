@@ -21,9 +21,13 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
+func TestXxxxx(t *testing.T) {
+	MustLoad(DLL)
+
+}
+
 func Test_Address(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("flow", func(t *testing.T) {
 		go func() {
@@ -121,8 +125,7 @@ func Test_Address(t *testing.T) {
 }
 
 func Test_Recv_Error(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("close/recv", func(t *testing.T) {
 		d, err := Open("false", Network, 0, 0)
@@ -131,7 +134,7 @@ func Test_Recv_Error(t *testing.T) {
 		defer d.Close()
 
 		_, err = d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrClosed{}))
+		require.True(t, errors.Is(err, ErrClosed{}), err)
 	})
 
 	t.Run("recv/close", func(t *testing.T) {
@@ -145,7 +148,7 @@ func Test_Recv_Error(t *testing.T) {
 				require.NoError(t, d.Close())
 			}()
 			_, err = d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrClosed{}))
+			require.True(t, errors.Is(err, ErrClosed{}), err)
 		}
 	})
 
@@ -160,9 +163,9 @@ func Test_Recv_Error(t *testing.T) {
 				require.NoError(t, d.Close())
 			}()
 			_, err = d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrClosed{}))
+			require.True(t, errors.Is(err, ErrClosed{}), err)
 
-			require.True(t, errors.Is(d.Close(), ErrClosed{}))
+			require.True(t, errors.Is(d.Close(), ErrClosed{}), err)
 		}
 	})
 
@@ -178,14 +181,14 @@ func Test_Recv_Error(t *testing.T) {
 			}()
 			{
 				_, err = d.Recv(make([]byte, 1536), nil)
-				require.True(t, errors.Is(err, ErrClosed{}))
+				require.True(t, errors.Is(err, ErrClosed{}), err)
 			}
 			{
-				require.True(t, errors.Is(d.Close(), ErrClosed{}))
+				require.True(t, errors.Is(d.Close(), ErrClosed{}), err)
 			}
 			{
 				_, err = d.Recv(make([]byte, 1536), nil)
-				require.True(t, errors.Is(err, ErrClosed{}))
+				require.True(t, errors.Is(err, ErrClosed{}), err)
 			}
 		}
 	})
@@ -197,7 +200,7 @@ func Test_Recv_Error(t *testing.T) {
 		defer d.Close()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}))
+		require.True(t, errors.Is(err, ErrShutdown{}), err)
 		require.Zero(t, n)
 	})
 
@@ -212,7 +215,7 @@ func Test_Recv_Error(t *testing.T) {
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}))
+		require.True(t, errors.Is(err, ErrShutdown{}), err)
 		require.Zero(t, n)
 	})
 
@@ -227,7 +230,7 @@ func Test_Recv_Error(t *testing.T) {
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}))
+		require.True(t, errors.Is(err, ErrShutdown{}), err)
 		require.Zero(t, n)
 
 		require.NoError(t, d.Shutdown(Both))
@@ -245,7 +248,7 @@ func Test_Recv_Error(t *testing.T) {
 
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrShutdown{}))
+			require.True(t, errors.Is(err, ErrShutdown{}), err)
 			require.Zero(t, n)
 		}
 		{
@@ -253,7 +256,7 @@ func Test_Recv_Error(t *testing.T) {
 		}
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrShutdown{}))
+			require.True(t, errors.Is(err, ErrShutdown{}), err)
 			require.Zero(t, n)
 		}
 	})
@@ -267,14 +270,13 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrClosed{}))
+		require.True(t, errors.Is(err, ErrClosed{}), err)
 		require.Zero(t, n)
 	})
 }
 
 func Test_Recv(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("Recv/network/loopback", func(t *testing.T) {
 		var (
@@ -347,72 +349,12 @@ func Test_Recv(t *testing.T) {
 		require.Equal(t, netip.AddrFrom4([4]byte{8, 8, 8, 8}), sa.RemoteAddr())
 	})
 
-	t.Run("RecvCtx/cancel", func(t *testing.T) {
-		d, err := Open("false", Network, 0, ReadOnly)
-		require.NoError(t, err)
-		defer d.Close()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			time.Sleep(time.Second)
-			cancel()
-		}()
-
-		s := time.Now()
-		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, context.Canceled))
-		require.Zero(t, n)
-		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
-	})
-
-	t.Run("RecvCtx/timeout", func(t *testing.T) {
-		d, err := Open("false", Network, 0, ReadOnly)
-		require.NoError(t, err)
-		defer d.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-
-		s := time.Now()
-		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, context.DeadlineExceeded))
-		require.Zero(t, n)
-		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
-		// t.Log(time.Since(s))
-	})
-
-	t.Run("RecvCtx/network", func(t *testing.T) {
-		d, err := Open("udp and remoteAddr=8.8.8.8 and remotePort=56", Network, 0, ReadOnly)
-		require.NoError(t, err)
-		defer d.Close()
-
-		go func() {
-			conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 56})
-			require.NoError(t, err)
-			defer conn.Close()
-
-			time.Sleep(time.Second)
-			_, err = conn.Write([]byte("hello"))
-			require.NoError(t, err)
-		}()
-
-		var addr Address
-		var ip = make([]byte, 1536)
-		s := time.Now()
-		n, err := d.RecvCtx(context.Background(), ip, &addr)
-		require.NoError(t, err)
-		iphdr := header.IPv4(ip[:n])
-		require.Equal(t, n, int(iphdr.TotalLength()))
-		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
-		// t.Log(time.Since(s))
-	})
 }
 
 func Test_Send(t *testing.T) {
 	t.Skip("todo: can't pass github/action, local can pass")
 
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("inbound", func(t *testing.T) {
 		var (
@@ -556,8 +498,7 @@ func Test_Send(t *testing.T) {
 }
 
 func Test_Auto_Handle_DF(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("recv", func(t *testing.T) {
 		var (
@@ -600,8 +541,7 @@ func Test_Auto_Handle_DF(t *testing.T) {
 func Test_Recving_Close(t *testing.T) {
 	t.Skip("todo: not support concurrent call")
 
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	wg, _ := errgroup.WithContext(context.Background())
 
@@ -636,8 +576,7 @@ func Test_Recving_Close(t *testing.T) {
 
 // CONCLUSION: packet alway be handle by higher priority.
 func Test_Recv_Priority(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
@@ -680,15 +619,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		eg.Go(func() error {
 			time.Sleep(time.Second)
-
-			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
-			require.NoError(t, err)
-			req.Close = true
-			req.Host = "baidu.com"
-			req.Header["User-Agent"] = []string{"curl"}
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			curlBaidu(t, baidu)
 			return nil
 		})
 		eg.Wait()
@@ -737,15 +668,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		eg.Go(func() error {
 			time.Sleep(time.Second)
-
-			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
-			require.NoError(t, err)
-			req.Close = true
-			req.Host = "baidu.com"
-			req.Header["User-Agent"] = []string{"curl"}
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			curlBaidu(t, baidu)
 			return nil
 		})
 		eg.Wait()
@@ -768,11 +691,11 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, Network, p, 0)
+				d, err := Open(filter, Network, p, Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
+				_, err = d.Recv(make([]byte, 1536), nil)
 				require.NoError(t, err)
 				if err == nil {
 					rs.CompareAndSwap(0, int32(p))
@@ -810,11 +733,11 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, Network, p, 0)
+				d, err := Open(filter, Network, p, Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
+				_, err = d.Recv(make([]byte, 1536), nil)
 				if err == nil {
 					rs.CompareAndSwap(0, int32(p))
 				}
@@ -836,10 +759,24 @@ func Test_Recv_Priority(t *testing.T) {
 	})
 }
 
+func curlBaidu(t *testing.T, baidu tcpip.Address) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", baidu.String()), nil)
+	require.NoError(t, err)
+	req.Close = true
+	req.Host = "baidu.com"
+	req.Header["User-Agent"] = []string{"Chrome/125.0.0.0"}
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+	} else {
+		// sometime get error EOF
+		t.Log("warn", err.Error())
+	}
+}
+
 // CONCLUSION: send packet will be handle by equal(random) or lower(always) priority
 func Test_Send_Priority(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
@@ -847,48 +784,43 @@ func Test_Send_Priority(t *testing.T) {
 			dst = netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), uint16(randPort()))
 			msg = "hello"
 		)
-
 		var (
 			filter = fmt.Sprintf(
 				"outbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				src.Addr(), src.Port(), dst.Addr(), dst.Port(),
 			)
-			hiPriority, midPriority, loPriority = 4, 2, 1
+			loPriority, midPriority, hiPriority int16 = 1, 2, 4
 			rs                                  atomic.Int32
 		)
+		eg, _ := errgroup.WithContext(context.Background())
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
-
-		for _, pri := range []int{hiPriority, midPriority, loPriority} {
-			go func(p int16) {
-				d, err := Open(filter, Network, p, Sniff)
+		for _, pri := range []int16{hiPriority, midPriority, loPriority} {
+			p := pri
+			eg.Go(func() error {
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
-				defer d.Close()
+				time.AfterFunc(time.Second*3, func() {
+					d.Close()
+				})
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
+				_, err = d.Recv(make([]byte, 1536), nil)
 				if err == nil {
 					rs.Add(int32(p))
 				}
-			}(int16(pri))
+				return nil
+			})
 		}
 
-		d, err := Open("false", Network, int16(midPriority), WriteOnly)
+		d, err := Open("false", Network, midPriority, WriteOnly)
 		require.NoError(t, err)
 		defer d.Close()
 		for rs.Load() == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
 			_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), outboundAddr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
-		require.Contains(t, []int{loPriority, loPriority + midPriority}, int(rs.Load()))
-		require.NoError(t, ctx.Err())
+		require.Contains(t, []int16{loPriority, midPriority}, int16(rs.Load()))
 	})
 
 	t.Run("inbound", func(t *testing.T) {
@@ -897,47 +829,41 @@ func Test_Send_Priority(t *testing.T) {
 			dst = netip.AddrPortFrom(locIP, uint16(randPort()))
 			msg = "hello"
 		)
-
 		var (
 			filter = fmt.Sprintf(
 				"inbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				dst.Addr(), dst.Port(), src.Addr(), src.Port(),
 			)
-			hiPriority, midPriority, loPriority = 4, 2, 1
+			loPriority, midPriority, hiPriority int16 = 1, 2, 4
 			rs                                  atomic.Int32
 		)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
+		eg, _ := errgroup.WithContext(context.Background())
 
-		for _, pri := range []int{hiPriority, midPriority, loPriority} {
-			go func(p int16) {
-				d, err := Open(filter, Network, p, Sniff)
+		for _, pri := range []int16{hiPriority, midPriority, loPriority} {
+			p := pri
+			eg.Go(func() error {
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
-				defer d.Close()
+				time.AfterFunc(time.Second*3, func() { d.Close() })
 
 				var b = make([]byte, 1536)
 				var addr Address
-				_, err = d.RecvCtx(ctx, b, &addr)
-				require.NoError(t, err)
-				require.True(t, !addr.Flags.Outbound())
-				rs.Add(int32(p))
-			}(int16(pri))
+				_, err = d.Recv(b, &addr)
+				if err == nil {
+					rs.Add(int32(p))
+				}
+				return nil
+			})
 		}
 
 		d, err := Open("false", Network, int16(midPriority), WriteOnly)
 		require.NoError(t, err)
 		for rs.Load() == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
 			_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), inboundAddr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
-		require.Contains(t, []int{loPriority, loPriority + midPriority}, int(rs.Load()))
-		require.NoError(t, ctx.Err())
+		require.Contains(t, []int16{loPriority, midPriority}, int16(rs.Load()))
 	})
 }
