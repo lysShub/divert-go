@@ -50,6 +50,9 @@ func (d *MemLazyDll) mustLoad() {
 func (d *MemLazyDll) NewProc(name string) LazyProc {
 	return &MemLazyProc{Name: name, l: d}
 }
+func (d *MemLazyDll) Loaded() bool {
+	return atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.dll))) != nil
+}
 
 type MemLazyProc struct {
 	Name string

@@ -21,8 +21,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
-var path = "embed\\WinDivert64.dll"
-
 func Test_Gofmt(t *testing.T) {
 	cmd := exec.Command("cmd", "/C", "gofmt", "-l", "-w", `.`)
 	out, err := cmd.CombinedOutput()
@@ -32,7 +30,33 @@ func Test_Gofmt(t *testing.T) {
 }
 
 func Test_Load_DLL(t *testing.T) {
+	t.Run("reset-mem", func(t *testing.T) {
+		MustLoad("test.dll")
+		MustLoad(DLL)
 
+		h, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer h.Close()
+	})
+
+	t.Run("reset-file", func(t *testing.T) {
+		MustLoad(Mem{DLL: make([]byte, 8), Sys: sysData})
+		MustLoad("embed\\WinDivert64.dll")
+
+		h, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer h.Close()
+	})
+
+	t.Run("loaded", func(t *testing.T) {
+		MustLoad(DLL)
+		h, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer h.Close()
+
+		err = Load(DLL)
+		require.True(t, errors.Is(err, ErrLoaded{}))
+	})
 }
 
 func Test_Helper(t *testing.T) {

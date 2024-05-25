@@ -14,6 +14,7 @@ type LazyDll interface {
 	Handle() uintptr
 	Load() error
 	NewProc(name string) LazyProc
+	Loaded() bool
 }
 
 type LazyProc interface {
@@ -24,19 +25,6 @@ type LazyProc interface {
 
 type CommLazyDll struct {
 	LazyDll
-	loaded atomic.Bool
-}
-
-func (d *CommLazyDll) Loaded() bool { return d.loaded.Load() }
-func (d *CommLazyDll) Load() error {
-	if !d.loaded.Load() {
-		err := d.LazyDll.Load()
-		if err != nil {
-			return err
-		}
-		d.loaded.Store(true)
-	}
-	return nil
 }
 
 func NewLazyDLL[T ~string | ~[]byte](dll T) *CommLazyDll {
