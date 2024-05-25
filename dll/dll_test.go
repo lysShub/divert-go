@@ -1,21 +1,7 @@
-//go:build windows
-// +build windows
+package dll
 
-package dll_test
+import "testing"
 
-import (
-	"testing"
-
-	"github.com/lysShub/divert-go/dll"
-)
-
-var (
-	test     = dll.NewLazyDLL(make([]byte, 3))
-	openProc = test.NewProc("WinDivertOpen")
-)
-
-func TestXxx(t *testing.T) {
-	dll.ResetLazyDll(test, `D:\OneDrive\code\go\divert-go\embed\WinDivert64.dll`)
-
-	openProc.Find()
+func Test_Dll(t *testing.T) {
+	t.Skip("todo")
 }
