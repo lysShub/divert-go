@@ -60,7 +60,7 @@ func Test_Load_DLL(t *testing.T) {
 }
 
 func Test_Helper(t *testing.T) {
-	require.NoError(t, Load(DLL))
+	MustLoad(DLL)
 
 	t.Run("format/null", func(t *testing.T) {
 		d, err := Open("false", Network, 0, 0)
