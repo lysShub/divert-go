@@ -57,14 +57,6 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 // notice: recvLen not work, use windows.GetOverlappedResult
 // todo: support batch recv
 func (d *Handle) RecvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.Overlapped) error {
-	err := d.recvEx(ip, addr, recvLen, ol)
-	if err != nil {
-		return handleError(err)
-	}
-	return nil
-}
-
-func (d *Handle) recvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.Overlapped) error {
 	var ipPtr uintptr
 	if len(ip) > 0 {
 		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
@@ -82,7 +74,7 @@ func (d *Handle) recvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.O
 		uintptr(unsafe.Pointer(ol)),      // lpOverlapped
 	)
 	if r1 == 0 {
-		return e
+		return handleError(e)
 	}
 	return nil
 }

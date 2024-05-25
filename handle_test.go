@@ -134,7 +134,7 @@ func Test_Recv_Error(t *testing.T) {
 		defer d.Close()
 
 		_, err = d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrClosed{}))
+		require.True(t, errors.Is(err, ErrClosed{}), err)
 	})
 
 	t.Run("recv/close", func(t *testing.T) {
@@ -148,7 +148,7 @@ func Test_Recv_Error(t *testing.T) {
 				require.NoError(t, d.Close())
 			}()
 			_, err = d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrClosed{}))
+			require.True(t, errors.Is(err, ErrClosed{}), err)
 		}
 	})
 
@@ -163,9 +163,9 @@ func Test_Recv_Error(t *testing.T) {
 				require.NoError(t, d.Close())
 			}()
 			_, err = d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrClosed{}))
+			require.True(t, errors.Is(err, ErrClosed{}), err)
 
-			require.True(t, errors.Is(d.Close(), ErrClosed{}))
+			require.True(t, errors.Is(d.Close(), ErrClosed{}), err)
 		}
 	})
 
@@ -181,14 +181,14 @@ func Test_Recv_Error(t *testing.T) {
 			}()
 			{
 				_, err = d.Recv(make([]byte, 1536), nil)
-				require.True(t, errors.Is(err, ErrClosed{}))
+				require.True(t, errors.Is(err, ErrClosed{}), err)
 			}
 			{
-				require.True(t, errors.Is(d.Close(), ErrClosed{}))
+				require.True(t, errors.Is(d.Close(), ErrClosed{}), err)
 			}
 			{
 				_, err = d.Recv(make([]byte, 1536), nil)
-				require.True(t, errors.Is(err, ErrClosed{}))
+				require.True(t, errors.Is(err, ErrClosed{}), err)
 			}
 		}
 	})
@@ -200,7 +200,7 @@ func Test_Recv_Error(t *testing.T) {
 		defer d.Close()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}))
+		require.True(t, errors.Is(err, ErrShutdown{}), err)
 		require.Zero(t, n)
 	})
 
@@ -215,7 +215,7 @@ func Test_Recv_Error(t *testing.T) {
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}))
+		require.True(t, errors.Is(err, ErrShutdown{}), err)
 		require.Zero(t, n)
 	})
 
@@ -230,7 +230,7 @@ func Test_Recv_Error(t *testing.T) {
 		}()
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}))
+		require.True(t, errors.Is(err, ErrShutdown{}), err)
 		require.Zero(t, n)
 
 		require.NoError(t, d.Shutdown(Both))
@@ -248,7 +248,7 @@ func Test_Recv_Error(t *testing.T) {
 
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrShutdown{}))
+			require.True(t, errors.Is(err, ErrShutdown{}), err)
 			require.Zero(t, n)
 		}
 		{
@@ -256,7 +256,7 @@ func Test_Recv_Error(t *testing.T) {
 		}
 		{
 			n, err := d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrShutdown{}))
+			require.True(t, errors.Is(err, ErrShutdown{}), err)
 			require.Zero(t, n)
 		}
 	})
@@ -270,7 +270,7 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 
 		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrClosed{}))
+		require.True(t, errors.Is(err, ErrClosed{}), err)
 		require.Zero(t, n)
 	})
 }
