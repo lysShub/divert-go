@@ -21,6 +21,12 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
+func TestXxxxx(t *testing.T) {
+	require.NoError(t, Load(DLL))
+	defer Release()
+
+}
+
 func Test_Address(t *testing.T) {
 	require.NoError(t, Load(DLL))
 	defer Release()
@@ -347,65 +353,6 @@ func Test_Recv(t *testing.T) {
 		require.Equal(t, netip.AddrFrom4([4]byte{8, 8, 8, 8}), sa.RemoteAddr())
 	})
 
-	t.Run("RecvCtx/cancel", func(t *testing.T) {
-		d, err := Open("false", Network, 0, ReadOnly)
-		require.NoError(t, err)
-		defer d.Close()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			time.Sleep(time.Second)
-			cancel()
-		}()
-
-		s := time.Now()
-		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, context.Canceled))
-		require.Zero(t, n)
-		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
-	})
-
-	t.Run("RecvCtx/timeout", func(t *testing.T) {
-		d, err := Open("false", Network, 0, ReadOnly)
-		require.NoError(t, err)
-		defer d.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-
-		s := time.Now()
-		n, err := d.RecvCtx(ctx, make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, context.DeadlineExceeded))
-		require.Zero(t, n)
-		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
-		// t.Log(time.Since(s))
-	})
-
-	t.Run("RecvCtx/network", func(t *testing.T) {
-		d, err := Open("udp and remoteAddr=8.8.8.8 and remotePort=56", Network, 0, ReadOnly)
-		require.NoError(t, err)
-		defer d.Close()
-
-		go func() {
-			conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("8.8.8.8"), Port: 56})
-			require.NoError(t, err)
-			defer conn.Close()
-
-			time.Sleep(time.Second)
-			_, err = conn.Write([]byte("hello"))
-			require.NoError(t, err)
-		}()
-
-		var addr Address
-		var ip = make([]byte, 1536)
-		s := time.Now()
-		n, err := d.RecvCtx(context.Background(), ip, &addr)
-		require.NoError(t, err)
-		iphdr := header.IPv4(ip[:n])
-		require.Equal(t, n, int(iphdr.TotalLength()))
-		require.Less(t, time.Since(s), time.Second+200*time.Millisecond)
-		// t.Log(time.Since(s))
-	})
 }
 
 func Test_Send(t *testing.T) {
@@ -772,7 +719,7 @@ func Test_Recv_Priority(t *testing.T) {
 				require.NoError(t, err)
 				defer d.Close()
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
+				_, err = d.Recv(make([]byte, 1536), nil)
 				require.NoError(t, err)
 				if err == nil {
 					rs.CompareAndSwap(0, int32(p))
@@ -814,7 +761,7 @@ func Test_Recv_Priority(t *testing.T) {
 				require.NoError(t, err)
 				defer d.Close()
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
+				_, err = d.Recv(make([]byte, 1536), nil)
 				if err == nil {
 					rs.CompareAndSwap(0, int32(p))
 				}
@@ -866,7 +813,7 @@ func Test_Send_Priority(t *testing.T) {
 				require.NoError(t, err)
 				defer d.Close()
 
-				_, err = d.RecvCtx(ctx, make([]byte, 1536), nil)
+				_, err = d.Recv(make([]byte, 1536), nil)
 				if err == nil {
 					rs.Add(int32(p))
 				}
@@ -917,7 +864,7 @@ func Test_Send_Priority(t *testing.T) {
 
 				var b = make([]byte, 1536)
 				var addr Address
-				_, err = d.RecvCtx(ctx, b, &addr)
+				_, err = d.Recv(b, &addr)
 				require.NoError(t, err)
 				require.True(t, !addr.Flags.Outbound())
 				rs.Add(int32(p))
