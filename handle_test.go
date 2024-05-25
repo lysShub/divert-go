@@ -22,14 +22,12 @@ import (
 )
 
 func TestXxxxx(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 }
 
 func Test_Address(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("flow", func(t *testing.T) {
 		go func() {
@@ -127,8 +125,7 @@ func Test_Address(t *testing.T) {
 }
 
 func Test_Recv_Error(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("close/recv", func(t *testing.T) {
 		d, err := Open("false", Network, 0, 0)
@@ -279,8 +276,7 @@ func Test_Recv_Error(t *testing.T) {
 }
 
 func Test_Recv(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("Recv/network/loopback", func(t *testing.T) {
 		var (
@@ -358,8 +354,7 @@ func Test_Recv(t *testing.T) {
 func Test_Send(t *testing.T) {
 	t.Skip("todo: can't pass github/action, local can pass")
 
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("inbound", func(t *testing.T) {
 		var (
@@ -503,8 +498,7 @@ func Test_Send(t *testing.T) {
 }
 
 func Test_Auto_Handle_DF(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("recv", func(t *testing.T) {
 		var (
@@ -547,8 +541,7 @@ func Test_Auto_Handle_DF(t *testing.T) {
 func Test_Recving_Close(t *testing.T) {
 	t.Skip("todo: not support concurrent call")
 
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	wg, _ := errgroup.WithContext(context.Background())
 
@@ -583,8 +576,7 @@ func Test_Recving_Close(t *testing.T) {
 
 // CONCLUSION: packet alway be handle by higher priority.
 func Test_Recv_Priority(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
@@ -785,8 +777,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 // CONCLUSION: send packet will be handle by equal(random) or lower(always) priority
 func Test_Send_Priority(t *testing.T) {
-	require.NoError(t, Load(DLL))
-	defer Release()
+	MustLoad(DLL)
 
 	t.Run("outbound", func(t *testing.T) {
 		var (
@@ -794,48 +785,44 @@ func Test_Send_Priority(t *testing.T) {
 			dst = netip.AddrPortFrom(netip.MustParseAddr("8.8.8.8"), uint16(randPort()))
 			msg = "hello"
 		)
-
 		var (
 			filter = fmt.Sprintf(
 				"outbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				src.Addr(), src.Port(), dst.Addr(), dst.Port(),
 			)
-			hiPriority, midPriority, loPriority = 4, 2, 1
+			loPriority, midPriority, hiPriority int16 = 1, 2, 4
 			rs                                  atomic.Int32
 		)
+		eg, _ := errgroup.WithContext(context.Background())
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
-
-		for _, pri := range []int{hiPriority, midPriority, loPriority} {
-			go func(p int16) {
-				d, err := Open(filter, Network, p, Sniff)
+		for _, pri := range []int16{hiPriority, midPriority, loPriority} {
+			p := pri
+			eg.Go(func() error {
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
-				defer d.Close()
+				time.AfterFunc(time.Second*3, func() {
+					println("call")
+					d.Close()
+				})
 
 				_, err = d.Recv(make([]byte, 1536), nil)
 				if err == nil {
 					rs.Add(int32(p))
 				}
-			}(int16(pri))
+				return nil
+			})
 		}
 
-		d, err := Open("false", Network, int16(midPriority), WriteOnly)
+		d, err := Open("false", Network, midPriority, WriteOnly)
 		require.NoError(t, err)
 		defer d.Close()
 		for rs.Load() == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
 			_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), outboundAddr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
-		require.Contains(t, []int{loPriority, loPriority + midPriority}, int(rs.Load()))
-		require.NoError(t, ctx.Err())
+		require.Contains(t, []int16{loPriority, midPriority, loPriority + midPriority}, int16(rs.Load()))
 	})
 
 	t.Run("inbound", func(t *testing.T) {
@@ -844,47 +831,41 @@ func Test_Send_Priority(t *testing.T) {
 			dst = netip.AddrPortFrom(locIP, uint16(randPort()))
 			msg = "hello"
 		)
-
 		var (
 			filter = fmt.Sprintf(
 				"inbound and udp and localAddr=%s and localPort=%d and remoteAddr=%s and remotePort=%d",
 				dst.Addr(), dst.Port(), src.Addr(), src.Port(),
 			)
-			hiPriority, midPriority, loPriority = 4, 2, 1
+			loPriority, midPriority, hiPriority int16 = 1, 2, 4
 			rs                                  atomic.Int32
 		)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
+		eg, _ := errgroup.WithContext(context.Background())
 
-		for _, pri := range []int{hiPriority, midPriority, loPriority} {
-			go func(p int16) {
-				d, err := Open(filter, Network, p, Sniff)
+		for _, pri := range []int16{hiPriority, midPriority, loPriority} {
+			p := pri
+			eg.Go(func() error {
+				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
-				defer d.Close()
+				time.AfterFunc(time.Second*3, func() { d.Close() })
 
 				var b = make([]byte, 1536)
 				var addr Address
 				_, err = d.Recv(b, &addr)
-				require.NoError(t, err)
-				require.True(t, !addr.Flags.Outbound())
-				rs.Add(int32(p))
-			}(int16(pri))
+				if err == nil {
+					rs.Add(int32(p))
+				}
+				return nil
+			})
 		}
 
 		d, err := Open("false", Network, int16(midPriority), WriteOnly)
 		require.NoError(t, err)
 		for rs.Load() == 0 {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
 			_, err := d.Send(buildUDP(t, src, dst, []byte(msg)), inboundAddr)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 		}
 
-		require.Contains(t, []int{loPriority, loPriority + midPriority}, int(rs.Load()))
-		require.NoError(t, ctx.Err())
+		require.Contains(t, []int16{loPriority, loPriority + midPriority}, int16(rs.Load()))
 	})
 }

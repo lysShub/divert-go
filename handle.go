@@ -4,6 +4,7 @@
 package divert
 
 import (
+	"syscall"
 	"unsafe"
 
 	"github.com/pkg/errors"
@@ -13,14 +14,13 @@ import (
 type Handle struct {
 	handle uintptr
 
-	layer     Layer
-	priority  int16
-	ctxPeriod uint32 // milliseconds
+	layer    Layer
+	priority int16
 }
 
 func (d *Handle) Close() error {
-	r1, _, e := global.calln(
-		global.procClose,
+	r1, _, e := syscall.SyscallN(
+		procClose.Addr(),
 		d.handle,
 	)
 	if r1 == 0 {
@@ -30,13 +30,6 @@ func (d *Handle) Close() error {
 }
 func (d *Handle) Priority() int16 { return d.priority }
 
-func (d *Handle) SetCtxPeriod(milliseconds uint32) {
-	d.ctxPeriod = milliseconds
-	if d.ctxPeriod < 5 {
-		d.ctxPeriod = 5
-	}
-}
-
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 	var recvLen uint32
 	var dataPtr, recvLenPtr uintptr
@@ -45,8 +38,8 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
 	}
 
-	r1, _, e := global.calln(
-		global.procRecv,
+	r1, _, e := syscall.SyscallN(
+		procRecv.Addr(),
 		d.handle,
 		dataPtr,
 		uintptr(len(ip)),
@@ -77,8 +70,8 @@ func (d *Handle) recvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.O
 		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
 	}
 
-	r1, _, e := global.calln(
-		global.procRecvEx,
+	r1, _, e := syscall.SyscallN(
+		procRecvEx.Addr(),
 		d.handle,
 		ipPtr,                            // pPacket
 		uintptr(len(ip)),                 // packetLen
@@ -100,8 +93,8 @@ func (d *Handle) Send(ip []byte, addr *Address) (int, error) {
 	}
 
 	var n uint32
-	r1, _, e := global.calln(
-		global.procSend,
+	r1, _, e := syscall.SyscallN(
+		procSend.Addr(),
 		d.handle, // handle
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),              // packetLen
@@ -122,8 +115,8 @@ func (d *Handle) SendEx(ip []byte, flag uint64, addr *Address, ol *windows.Overl
 	var n uint32
 
 	// todo: support batch
-	r1, _, e := global.calln(
-		global.procSendEx,
+	r1, _, e := syscall.SyscallN(
+		procSendEx.Addr(),
 		d.handle,
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),              // packetLen
@@ -140,8 +133,8 @@ func (d *Handle) SendEx(ip []byte, flag uint64, addr *Address, ol *windows.Overl
 }
 
 func (d *Handle) Shutdown(how Shutdown) error {
-	r1, _, e := global.calln(
-		global.procShutdown,
+	r1, _, e := syscall.SyscallN(
+		procShutdown.Addr(),
 		d.handle,
 		uintptr(how),
 	)
@@ -152,8 +145,8 @@ func (d *Handle) Shutdown(how Shutdown) error {
 }
 
 func (d *Handle) SetParam(param PARAM, value uint64) error {
-	r1, _, e := global.calln(
-		global.procSetParam,
+	r1, _, e := syscall.SyscallN(
+		procSetParam.Addr(),
 		d.handle,
 		uintptr(param),
 		uintptr(value),
@@ -165,8 +158,8 @@ func (d *Handle) SetParam(param PARAM, value uint64) error {
 }
 
 func (d *Handle) GetParam(param PARAM) (value uint64, err error) {
-	r1, _, e := global.calln(
-		global.procGetParam,
+	r1, _, e := syscall.SyscallN(
+		procGetParam.Addr(),
 		d.handle,
 		uintptr(param),
 		uintptr(unsafe.Pointer(&value)),
