@@ -162,5 +162,6 @@ func winDivertDriverInstall(sysPath string) error {
 // todo
 func winDivertRegisterEventSource(sysPath string) error {
 	// windows.RegisterEventSource()
+	_ = sysPath
 	return nil
 }
