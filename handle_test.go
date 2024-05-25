@@ -715,7 +715,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, Network, p, 0)
+				d, err := Open(filter, Network, p, Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
@@ -757,7 +757,7 @@ func Test_Recv_Priority(t *testing.T) {
 
 		for _, pri := range []int{hiPriority, loPriority} {
 			go func(p int16) {
-				d, err := Open(filter, Network, p, 0)
+				d, err := Open(filter, Network, p, Sniff)
 				require.NoError(t, err)
 				defer d.Close()
 
