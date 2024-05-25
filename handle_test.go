@@ -632,7 +632,7 @@ func Test_Recv_Priority(t *testing.T) {
 			require.NoError(t, err)
 			req.Close = true
 			req.Host = "baidu.com"
-			req.Header["User-Agent"] = []string{"curl"}
+			req.Header["User-Agent"] = []string{"Chrome/125.0.0.0"}
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -689,7 +689,7 @@ func Test_Recv_Priority(t *testing.T) {
 			require.NoError(t, err)
 			req.Close = true
 			req.Host = "baidu.com"
-			req.Header["User-Agent"] = []string{"curl"}
+			req.Header["User-Agent"] = []string{"Chrome/125.0.0.0"}
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
