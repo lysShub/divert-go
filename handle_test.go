@@ -800,7 +800,6 @@ func Test_Send_Priority(t *testing.T) {
 				d, err := Open(filter, Network, p, 0)
 				require.NoError(t, err)
 				time.AfterFunc(time.Second*3, func() {
-					println("call")
 					d.Close()
 				})
 
@@ -821,7 +820,7 @@ func Test_Send_Priority(t *testing.T) {
 			time.Sleep(time.Second)
 		}
 
-		require.Contains(t, []int16{loPriority, midPriority, loPriority + midPriority}, int16(rs.Load()))
+		require.Contains(t, []int16{loPriority, midPriority}, int16(rs.Load()))
 	})
 
 	t.Run("inbound", func(t *testing.T) {
@@ -865,6 +864,6 @@ func Test_Send_Priority(t *testing.T) {
 			time.Sleep(time.Second)
 		}
 
-		require.Contains(t, []int16{loPriority, loPriority + midPriority}, int16(rs.Load()))
+		require.Contains(t, []int16{loPriority, midPriority}, int16(rs.Load()))
 	})
 }
