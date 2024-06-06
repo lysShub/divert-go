@@ -30,6 +30,7 @@ func (d *Handle) Close() error {
 }
 func (d *Handle) Priority() int16 { return d.priority }
 
+// Recv recv ip packet, probable return 0.
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 	var recvLen uint32
 	var dataPtr, recvLenPtr uintptr
@@ -55,8 +56,8 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 
 // RecvEx
 // notice: recvLen not work, use windows.GetOverlappedResult
-// todo: support batch recv
 func (d *Handle) RecvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.Overlapped) error {
+	// todo: support batch recv
 	var ipPtr uintptr
 	if len(ip) > 0 {
 		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
