@@ -10,6 +10,7 @@ var dllData []byte
 //go:embed embed/WinDivert32.sys
 var sysData []byte
 
+// from https://reqrypt.org/download/WinDivert-2.2.2-A.zip
 var DLL = Mem{
 	DLL: dllData,
 	Sys: sysData,
