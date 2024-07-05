@@ -13,7 +13,7 @@ import (
 type MemLazyDll struct {
 	Data []byte
 
-	mu  sync.Mutex
+	mu  sync.RWMutex
 	dll *memmod.Module
 }
 
@@ -51,7 +51,9 @@ func (d *MemLazyDll) NewProc(name string) LazyProc {
 	return &MemLazyProc{Name: name, l: d}
 }
 func (d *MemLazyDll) Loaded() bool {
-	return atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.dll))) != nil
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.dll != nil
 }
 
 type MemLazyProc struct {
@@ -87,8 +89,11 @@ func (p *MemLazyProc) Find() error {
 			}
 			atomic.StoreUintptr(&p.proc, proc)
 		}
-
 	}
 	return nil
 }
-func (p *MemLazyProc) mustFind() {}
+func (p *MemLazyProc) mustFind() {
+	if err := p.Find(); err != nil {
+		panic(err)
+	}
+}

@@ -4,6 +4,7 @@
 package divert
 
 import (
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -19,12 +20,17 @@ type Handle struct {
 }
 
 func (d *Handle) Close() error {
-	r1, _, e := syscall.SyscallN(
-		procClose.Addr(),
-		d.handle,
-	)
-	if r1 == 0 {
-		return handleError(e)
+	const invalid = uintptr(windows.InvalidHandle)
+
+	fd := atomic.SwapUintptr(&d.handle, invalid)
+	if fd != invalid {
+		r1, _, e := syscall.SyscallN(
+			procClose.Addr(),
+			d.handle,
+		)
+		if r1 == 0 {
+			return handleError(e)
+		}
 	}
 	return nil
 }
