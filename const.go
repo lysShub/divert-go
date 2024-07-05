@@ -20,14 +20,14 @@ const (
 type Flag uint64
 
 const (
-	Sniff     Flag = 0x0001 // copy data, like pcap
+	Sniff     Flag = 0x0001 // copy ip packet, like pcap
 	Drop      Flag = 0x0002
 	RecvOnly  Flag = 0x0004
 	ReadOnly  Flag = RecvOnly
 	SendOnly  Flag = 0x0008
 	WriteOnly Flag = SendOnly
 	NoInstall Flag = 0x0010
-	Fragments Flag = 0x0020
+	Fragments Flag = 0x0020 // can recv ip MF segment
 )
 
 type Event uint8

@@ -32,17 +32,17 @@ type Address struct {
 	reserved3 [64]byte
 }
 
-func (a *Address) Network() *DateNetwork {
-	return (*DateNetwork)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Network() *AddrNetwork {
+	return (*AddrNetwork)(unsafe.Pointer(&a.reserved3[0]))
 }
-func (a *Address) Flow() *DataFlow {
-	return (*DataFlow)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Flow() *AddrFlow {
+	return (*AddrFlow)(unsafe.Pointer(&a.reserved3[0]))
 }
-func (a *Address) Socket() *DataSocket {
-	return (*DataSocket)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Socket() *AddrSocket {
+	return (*AddrSocket)(unsafe.Pointer(&a.reserved3[0]))
 }
-func (a *Address) Reflect() *DataReflect {
-	return (*DataReflect)(unsafe.Pointer(&a.reserved3[0]))
+func (a *Address) Reflect() *AddrReflect {
+	return (*AddrReflect)(unsafe.Pointer(&a.reserved3[0]))
 }
 
 type Flags uint8
@@ -135,12 +135,12 @@ func (f *Flags) SetUDPChecksum(sum bool) {
 	}
 }
 
-type DateNetwork struct {
+type AddrNetwork struct {
 	IfIdx    uint32 // Packet's interface index.
 	SubIfIdx uint32 // Packet's sub-interface index.
 }
 
-type DataFlow struct {
+type AddrFlow struct {
 	EndpointId       uint64    // Endpoint ID.
 	ParentEndpointId uint64    // Parent endpoint ID.
 	ProcessId        uint32    // Process ID.
@@ -151,7 +151,7 @@ type DataFlow struct {
 	Protocol         Proto     // Protocol.
 }
 
-func (d *DataFlow) LocalAddr() netip.Addr {
+func (d *AddrFlow) LocalAddr() netip.Addr {
 	var ip = make([]byte, 0, 16)
 	for i := 3; i >= 0; i-- {
 		ip = binary.BigEndian.AppendUint32(ip, d.localAddr[i])
@@ -164,11 +164,11 @@ func (d *DataFlow) LocalAddr() netip.Addr {
 	return addr
 }
 
-func (d *DataFlow) LocalAddrPort() netip.AddrPort {
+func (d *AddrFlow) LocalAddrPort() netip.AddrPort {
 	return netip.AddrPortFrom(d.LocalAddr(), d.LocalPort)
 }
 
-func (d *DataFlow) RemoteAddr() netip.Addr {
+func (d *AddrFlow) RemoteAddr() netip.Addr {
 	var ip = make([]byte, 0, 16)
 	for i := 3; i >= 0; i-- {
 		ip = binary.BigEndian.AppendUint32(ip, d.remoteAddr[i])
@@ -181,16 +181,16 @@ func (d *DataFlow) RemoteAddr() netip.Addr {
 	return addr
 }
 
-func (d *DataFlow) RemoteAddrPort() netip.AddrPort {
+func (d *AddrFlow) RemoteAddrPort() netip.AddrPort {
 	return netip.AddrPortFrom(d.RemoteAddr(), d.RemotePort)
 }
 
-type DataSocket = DataFlow
+type AddrSocket = AddrFlow
 
-type DataReflect struct {
+type AddrReflect struct {
 	Timestamp int64  // Handle open time.
 	ProcessId uint32 // Handle process ID.
 	Layer     Layer  // Handle layer.
-	Flags     uint64 // Handle flags.
+	Flags     Flag   // Handle flags.
 	Priority  int16  // Handle priority.
 }

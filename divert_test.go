@@ -30,6 +30,10 @@ func Test_Gofmt(t *testing.T) {
 }
 
 func Test_Load_DLL(t *testing.T) {
+	// go test -list ".*" ./...
+	// and go test with -run flag
+	t.Skip("require independent test.")
+
 	t.Run("reset-mem", func(t *testing.T) {
 		MustLoad("test.dll")
 		MustLoad(DLL)

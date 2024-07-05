@@ -3,6 +3,7 @@ package dll
 import (
 	"sync/atomic"
 
+	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
 
@@ -14,7 +15,10 @@ type SysLazyDll struct {
 var _ LazyDll = (*SysLazyDll)(nil)
 
 func (l *SysLazyDll) NewProc(name string) LazyProc {
-	return l.LazyDLL.NewProc(name)
+	return &sysLazyProcWraper{
+		LazyProc: l.LazyDLL.NewProc(name),
+		dll:      l.LazyDLL.Name,
+	}
 }
 func (l *SysLazyDll) Load() error {
 	if !l.loaded.Load() {
@@ -27,3 +31,16 @@ func (l *SysLazyDll) Load() error {
 	return nil
 }
 func (l *SysLazyDll) Loaded() bool { return l.loaded.Load() }
+
+type sysLazyProcWraper struct {
+	*windows.LazyProc
+	dll string
+}
+
+func (p *sysLazyProcWraper) Find() error {
+	err := p.LazyProc.Find()
+	if err != nil {
+		return errors.WithMessage(err, p.dll)
+	}
+	return nil
+}
