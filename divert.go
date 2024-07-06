@@ -75,11 +75,12 @@ func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, erro
 		return nil, errors.WithStack(e)
 	}
 
-	return &Handle{
-		handle:   r1,
+	var h = &Handle{
 		layer:    layer,
 		priority: priority,
-	}, nil
+	}
+	h.handle.Store(r1)
+	return h, nil
 }
 
 func HelperCompileFilter(filter string, layer Layer) (string, error) {
