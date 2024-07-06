@@ -13,7 +13,7 @@ import (
 )
 
 type Handle struct {
-	handle uintptr
+	handle atomic.Uintptr
 
 	layer    Layer
 	priority int16
@@ -22,11 +22,11 @@ type Handle struct {
 func (d *Handle) Close() error {
 	const invalid = uintptr(windows.InvalidHandle)
 
-	fd := atomic.SwapUintptr(&d.handle, invalid)
+	fd := d.handle.Swap(invalid)
 	if fd != invalid {
 		r1, _, e := syscall.SyscallN(
 			procClose.Addr(),
-			d.handle,
+			d.handle.Load(),
 		)
 		if r1 == 0 {
 			return handleError(e)
@@ -47,7 +47,7 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 
 	r1, _, e := syscall.SyscallN(
 		procRecv.Addr(),
-		d.handle,
+		d.handle.Load(),
 		dataPtr,
 		uintptr(len(ip)),
 		recvLenPtr,
@@ -71,7 +71,7 @@ func (d *Handle) RecvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.O
 
 	r1, _, e := syscall.SyscallN(
 		procRecvEx.Addr(),
-		d.handle,
+		d.handle.Load(),
 		ipPtr,                            // pPacket
 		uintptr(len(ip)),                 // packetLen
 		uintptr(unsafe.Pointer(recvLen)), // pRecvLen  NOTICE: not work
@@ -94,7 +94,7 @@ func (d *Handle) Send(ip []byte, addr *Address) (int, error) {
 	var n uint32
 	r1, _, e := syscall.SyscallN(
 		procSend.Addr(),
-		d.handle, // handle
+		d.handle.Load(),
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),              // packetLen
 		uintptr(unsafe.Pointer(&n)),   // pSendLen
@@ -116,7 +116,7 @@ func (d *Handle) SendEx(ip []byte, flag uint64, addr *Address, ol *windows.Overl
 	// todo: support batch
 	r1, _, e := syscall.SyscallN(
 		procSendEx.Addr(),
-		d.handle,
+		d.handle.Load(),
 		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),              // packetLen
 		uintptr(unsafe.Pointer(&n)),   // pSendLen
@@ -134,7 +134,7 @@ func (d *Handle) SendEx(ip []byte, flag uint64, addr *Address, ol *windows.Overl
 func (d *Handle) Shutdown(how Shutdown) error {
 	r1, _, e := syscall.SyscallN(
 		procShutdown.Addr(),
-		d.handle,
+		d.handle.Load(),
 		uintptr(how),
 	)
 	if r1 == 0 {
@@ -146,7 +146,7 @@ func (d *Handle) Shutdown(how Shutdown) error {
 func (d *Handle) SetParam(param PARAM, value uint64) error {
 	r1, _, e := syscall.SyscallN(
 		procSetParam.Addr(),
-		d.handle,
+		d.handle.Load(),
 		uintptr(param),
 		uintptr(value),
 	)
@@ -159,7 +159,7 @@ func (d *Handle) SetParam(param PARAM, value uint64) error {
 func (d *Handle) GetParam(param PARAM) (value uint64, err error) {
 	r1, _, e := syscall.SyscallN(
 		procGetParam.Addr(),
-		d.handle,
+		d.handle.Load(),
 		uintptr(param),
 		uintptr(unsafe.Pointer(&value)),
 	)
