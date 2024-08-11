@@ -30,6 +30,8 @@ func (d *Handle) Close() error {
 		)
 		if r1 == 0 {
 			return handleError(e)
+		} else {
+			return nil
 		}
 	}
 	return ErrClosed{}
