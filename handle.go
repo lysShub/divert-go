@@ -26,31 +26,27 @@ func (d *Handle) Close() error {
 	if fd != invalid {
 		r1, _, e := syscall.SyscallN(
 			procClose.Addr(),
-			d.handle.Load(),
+			fd,
 		)
 		if r1 == 0 {
 			return handleError(e)
+		} else {
+			return nil
 		}
 	}
-	return nil
+	return ErrClosed{}
 }
 func (d *Handle) Priority() int16 { return d.priority }
 
 // Recv recv ip packet, probable return 0.
 func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 	var recvLen uint32
-	var dataPtr, recvLenPtr uintptr
-	if len(ip) > 0 {
-		dataPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
-		recvLenPtr = uintptr(unsafe.Pointer(&recvLen))
-	}
-
 	r1, _, e := syscall.SyscallN(
 		procRecv.Addr(),
 		d.handle.Load(),
-		dataPtr,
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))),
 		uintptr(len(ip)),
-		recvLenPtr,
+		uintptr(unsafe.Pointer(&recvLen)),
 		uintptr(unsafe.Pointer(addr)),
 	)
 	if r1 == 0 {
@@ -64,15 +60,11 @@ func (d *Handle) Recv(ip []byte, addr *Address) (int, error) {
 // notice: recvLen not work, use windows.GetOverlappedResult
 func (d *Handle) RecvEx(ip []byte, addr *Address, recvLen *uint32, ol *windows.Overlapped) error {
 	// todo: support batch recv
-	var ipPtr uintptr
-	if len(ip) > 0 {
-		ipPtr = uintptr(unsafe.Pointer(unsafe.SliceData(ip)))
-	}
 
 	r1, _, e := syscall.SyscallN(
 		procRecvEx.Addr(),
 		d.handle.Load(),
-		ipPtr,                            // pPacket
+		uintptr(unsafe.Pointer(unsafe.SliceData(ip))), // pPacket
 		uintptr(len(ip)),                 // packetLen
 		uintptr(unsafe.Pointer(recvLen)), // pRecvLen  NOTICE: not work
 		uintptr(0),                       // flags 0
