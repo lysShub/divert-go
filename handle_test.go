@@ -143,31 +143,39 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		{
-			go func() {
-				time.Sleep(time.Second)
-				require.NoError(t, d.Close())
-			}()
+		eg, _ := errgroup.WithContext(context.Background())
+		eg.Go(func() error {
+			time.Sleep(time.Second)
+			require.NoError(t, d.Close())
+			return nil
+		})
+		eg.Go(func() error {
 			_, err = d.Recv(make([]byte, 1536), nil)
 			require.True(t, errors.Is(err, ErrClosed{}), err)
-		}
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("recv/close/close", func(t *testing.T) {
-		d, err := Open("false", Network, 0, 0)
+		d, err := Open("false", Network, 0, RecvOnly|Sniff)
 		require.NoError(t, err)
 		defer d.Close()
 
-		{
-			go func() {
-				time.Sleep(time.Second)
-				require.NoError(t, d.Close())
-			}()
+		eg, _ := errgroup.WithContext(context.Background())
+		eg.Go(func() error {
+			time.Sleep(time.Second)
+			require.NoError(t, d.Close())
+			return nil
+		})
+		eg.Go(func() error {
 			_, err = d.Recv(make([]byte, 1536), nil)
 			require.True(t, errors.Is(err, ErrClosed{}), err)
 
 			require.True(t, errors.Is(d.Close(), ErrClosed{}), err)
-		}
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("recv/close/close/recv", func(t *testing.T) {
@@ -175,11 +183,13 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		{
-			go func() {
-				time.Sleep(time.Second)
-				require.NoError(t, d.Close())
-			}()
+		eg, _ := errgroup.WithContext(context.Background())
+		eg.Go(func() error {
+			time.Sleep(time.Second)
+			require.NoError(t, d.Close())
+			return nil
+		})
+		eg.Go(func() error {
 			{
 				_, err = d.Recv(make([]byte, 1536), nil)
 				require.True(t, errors.Is(err, ErrClosed{}), err)
@@ -191,7 +201,9 @@ func Test_Recv_Error(t *testing.T) {
 				_, err = d.Recv(make([]byte, 1536), nil)
 				require.True(t, errors.Is(err, ErrClosed{}), err)
 			}
-		}
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("shutdown/recv", func(t *testing.T) {
@@ -210,14 +222,19 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		go func() {
+		eg, _ := errgroup.WithContext(context.Background())
+		eg.Go(func() error {
 			time.Sleep(time.Second)
 			require.NoError(t, d.Shutdown(Both))
-		}()
-
-		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}), err)
-		require.Zero(t, n)
+			return nil
+		})
+		eg.Go(func() error {
+			n, err := d.Recv(make([]byte, 1536), nil)
+			require.True(t, errors.Is(err, ErrShutdown{}), err)
+			require.Zero(t, n)
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("recv/shutdown/shutdown", func(t *testing.T) {
@@ -225,16 +242,21 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		go func() {
+		eg, _ := errgroup.WithContext(context.Background())
+		eg.Go(func() error {
 			time.Sleep(time.Second)
 			require.NoError(t, d.Shutdown(Both))
-		}()
+			return nil
+		})
+		eg.Go(func() error {
+			n, err := d.Recv(make([]byte, 1536), nil)
+			require.True(t, errors.Is(err, ErrShutdown{}), err)
+			require.Zero(t, n)
 
-		n, err := d.Recv(make([]byte, 1536), nil)
-		require.True(t, errors.Is(err, ErrShutdown{}), err)
-		require.Zero(t, n)
-
-		require.NoError(t, d.Shutdown(Both))
+			require.NoError(t, d.Shutdown(Both))
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("recv/shutdown/shutdown/recv", func(t *testing.T) {
@@ -242,24 +264,29 @@ func Test_Recv_Error(t *testing.T) {
 		require.NoError(t, err)
 		defer d.Close()
 
-		go func() {
+		eg, _ := errgroup.WithContext(context.Background())
+		eg.Go(func() error {
 			time.Sleep(time.Second)
 			require.NoError(t, d.Shutdown(Both))
-		}()
-
-		{
-			n, err := d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrShutdown{}), err)
-			require.Zero(t, n)
-		}
-		{
-			require.NoError(t, d.Shutdown(Both))
-		}
-		{
-			n, err := d.Recv(make([]byte, 1536), nil)
-			require.True(t, errors.Is(err, ErrShutdown{}), err)
-			require.Zero(t, n)
-		}
+			return nil
+		})
+		eg.Go(func() error {
+			{
+				n, err := d.Recv(make([]byte, 1536), nil)
+				require.True(t, errors.Is(err, ErrShutdown{}), err)
+				require.Zero(t, n)
+			}
+			{
+				require.NoError(t, d.Shutdown(Both))
+			}
+			{
+				n, err := d.Recv(make([]byte, 1536), nil)
+				require.True(t, errors.Is(err, ErrShutdown{}), err)
+				require.Zero(t, n)
+			}
+			return nil
+		})
+		eg.Wait()
 	})
 
 	t.Run("close/recv", func(t *testing.T) {

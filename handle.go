@@ -32,7 +32,7 @@ func (d *Handle) Close() error {
 			return handleError(e)
 		}
 	}
-	return nil
+	return ErrClosed{}
 }
 func (d *Handle) Priority() int16 { return d.priority }
 
