@@ -396,7 +396,7 @@ func Test_Recv(t *testing.T) {
 		})
 		eg.Go(func() error {
 			time.Sleep(time.Second)
-			resp, err := http.Get("http://baidu.com")
+			resp, err := http.Get("http://bing.com")
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
@@ -421,7 +421,7 @@ func Test_Recv(t *testing.T) {
 		})
 		eg.Go(func() error {
 			time.Sleep(time.Second)
-			resp, err := http.Get("http://baidu.com")
+			resp, err := http.Get("http://bing.com")
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
@@ -445,7 +445,7 @@ func Test_Recv(t *testing.T) {
 		})
 		eg.Go(func() error {
 			time.Sleep(time.Second)
-			resp, err := http.Get("http://baidu.com")
+			resp, err := http.Get("http://bing.com")
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
