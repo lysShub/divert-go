@@ -26,7 +26,7 @@ func (d *Handle) Close() error {
 	if fd != invalid {
 		r1, _, e := syscall.SyscallN(
 			procClose.Addr(),
-			d.handle.Load(),
+			fd,
 		)
 		if r1 == 0 {
 			return handleError(e)
