@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	"github.com/pkg/errors"
@@ -27,19 +28,177 @@ func driverInstall(b []byte) error {
 			return err
 		}
 	}
-	return winDivertDriverInstall(path)
+	return _WinDivertDriverInstall(path)
 }
 
 const WINDIVERT_DEVICE_NAME = "WinDivert"
+const WinDivertDriverInstallMutex = "WinDivertDriverInstallMutex"
 
-func winDivertDriverInstall(sysPath string) error {
-	const (
-		WinDivertDriverInstallMutex = "WinDivertDriverInstallMutex"
-	)
-
-	pname, err := windows.UTF16PtrFromString(fmt.Sprintf("\\\\.\\%s", WINDIVERT_DEVICE_NAME))
+// Install the WinDivert driver.
+func _WinDivertDriverInstall(sysPath string) error {
+	if installed, err := winDivertDriverInstalled(); err != nil {
+		return err
+	} else if installed {
+		return nil
+	}
+	mu, err := winDivertDriverMutex()
 	if err != nil {
 		return err
+	}
+	if err := mu.Lock(); err != nil {
+		return err
+	}
+	defer mu.Unlock()
+
+	// Open the service manager:
+	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ALL_ACCESS)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseServiceHandle(manager)
+
+	// Check if the WinDivert service already exists; if so, start it.
+	pdevice, err := windows.UTF16PtrFromString(WINDIVERT_DEVICE_NAME)
+	if err != nil {
+		return err
+	}
+	service, err := windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
+	if err != nil {
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			// Create the service:
+			psysPath, err := windows.UTF16PtrFromString(sysPath)
+			if err != nil {
+				return err
+			}
+
+			service, err = windows.CreateService(
+				manager,                       // hSCManager
+				pdevice,                       // lpServiceName
+				pdevice,                       // lpDisplayName
+				windows.SERVICE_ALL_ACCESS,    // dwDesiredAccess
+				windows.SERVICE_KERNEL_DRIVER, // dwServiceType
+				windows.SERVICE_DEMAND_START,  // dwStartType
+				windows.SERVICE_ERROR_NORMAL,  // dwErrorControl
+				psysPath,                      // lpBinaryPathName
+				nil, nil, nil, nil, nil,
+			)
+			if err != nil {
+				if errors.Is(err, windows.ERROR_SERVICE_EXISTS) {
+					service, _ = windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
+				} else {
+					return err
+				}
+			}
+		} else {
+			return err
+		}
+	}
+	defer windows.CloseServiceHandle(service)
+
+	// Register event logging:
+	_ = winDivertRegisterEventSource(sysPath)
+
+	err = windows.StartService(service, 0, nil)
+	if err != nil {
+		if errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
+		} else {
+			return err
+		}
+	}
+
+	// 当前service是running状态, 不会立即删除, 只有当电脑重启
+	// 或者service变为stopped状态时才会删除（延时删除）
+	windows.DeleteService(service)
+	return nil
+}
+
+func _WinDivertDriverUninstall() error {
+	if installed, err := winDivertDriverInstalled(); err != nil {
+		return err
+	} else if !installed {
+		return nil
+	}
+	mu, err := winDivertDriverMutex()
+	if err != nil {
+		return err
+	}
+	if err := mu.Lock(); err != nil {
+		return err
+	}
+	defer mu.Unlock()
+
+	// Open the service manager:
+	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ALL_ACCESS)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseServiceHandle(manager)
+
+	pdevice, err := windows.UTF16PtrFromString(WINDIVERT_DEVICE_NAME)
+	if err != nil {
+		return err
+	}
+	service, err := windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
+	if err != nil {
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return nil
+		} else {
+			return err
+		}
+	}
+	defer windows.CloseServiceHandle(service)
+
+	err = windows.ControlService(service, windows.SERVICE_CONTROL_STOP, &windows.SERVICE_STATUS{})
+	if err != nil {
+		return err
+	}
+
+	var status = &windows.SERVICE_STATUS{}
+	for {
+		if err := windows.QueryServiceStatus(service, status); err != nil {
+			return err
+		}
+		if status.CurrentState == windows.SERVICE_STOPPED {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	return windows.DeleteService(service)
+}
+
+type driverMutex windows.Handle
+
+func winDivertDriverMutex() (driverMutex, error) {
+	// Create a named mutex.  This is to stop two processes trying
+	// to start the driver at the same time.
+	pmu, err := windows.UTF16PtrFromString(WinDivertDriverInstallMutex)
+	if err != nil {
+		return 0, err
+	}
+	mutex, err := windows.CreateMutex(nil, false, pmu)
+	if err != nil {
+		return 0, err
+	}
+	return driverMutex(mutex), nil
+}
+func (m driverMutex) Lock() error {
+	event, err := windows.WaitForSingleObject(windows.Handle(m), windows.INFINITE)
+	if err != nil {
+		return err
+	} else if event != windows.WAIT_OBJECT_0 && event != windows.WAIT_ABANDONED {
+		return errors.Errorf("WaitForSingleObject event %d", event)
+	}
+	return nil
+}
+func (m driverMutex) Unlock() {
+	windows.ReleaseMutex(windows.Handle(m))
+	windows.Close(windows.Handle(m))
+}
+
+func winDivertDriverInstalled() (installed bool, err error) {
+	pname, err := windows.UTF16PtrFromString(fmt.Sprintf("\\\\.\\%s", WINDIVERT_DEVICE_NAME))
+	if err != nil {
+		return false, err
 	}
 
 	h, err := windows.CreateFile(
@@ -51,112 +210,19 @@ func winDivertDriverInstall(sysPath string) error {
 		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OVERLAPPED,
 		windows.InvalidHandle,
 	)
-	if err == nil {
-		return windows.Close(h)
-	} else if !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) &&
-		!errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
+	if err != nil {
+		if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) ||
+			errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
 
-		return err
-	}
-
-	// Install the WinDivert driver.
-	// WinDivertDriverInstall
-	{
-		// Create & lock a named mutex.  This is to stop two processes trying
-		// to start the driver at the same time.
-		pmu, err := windows.UTF16PtrFromString(WinDivertDriverInstallMutex)
-		if err != nil {
-			return err
-		}
-		mutex, err := windows.CreateMutex(nil, false, pmu)
-		if err != nil {
-			return err
-		}
-		event, err := windows.WaitForSingleObject(mutex, windows.INFINITE)
-		if err != nil {
-			return err
-		} else if event != windows.WAIT_OBJECT_0 && event != windows.WAIT_ABANDONED {
-			return errors.Errorf("WaitForSingleObject event %d", event)
-		}
-
-		var (
-			manager, service   windows.Handle
-			pdevice, ppathName *uint16
-		)
-
-		// Open the service manager:
-		manager, err = windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ALL_ACCESS)
-		if err != nil {
-			goto WinDivertDriverInstallExit
-		}
-
-		// Check if the WinDivert service already exists; if so, start it.
-		pdevice, err = windows.UTF16PtrFromString(WINDIVERT_DEVICE_NAME)
-		if err != nil {
-			goto WinDivertDriverInstallExit
-		}
-		service, err = windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
-		if err == nil {
-			goto WinDivertDriverInstallExit
-		}
-
-		// Create the service:
-		ppathName, err = windows.UTF16PtrFromString(sysPath)
-		if err != nil {
-			goto WinDivertDriverInstallExit
-		}
-		service, err = windows.CreateService(
-			manager,
-			pdevice,
-			pdevice,
-			windows.SERVICE_ALL_ACCESS,
-			windows.SERVICE_KERNEL_DRIVER,
-			windows.SERVICE_DEMAND_START,
-			windows.SERVICE_ERROR_NORMAL,
-			ppathName,
-			nil, nil, nil, nil, nil,
-		)
-		if err != nil {
-			if errors.Is(err, windows.ERROR_SERVICE_EXISTS) {
-				service, _ = windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
-			}
-			goto WinDivertDriverInstallExit
-		}
-
-		// Register event logging:
-		_ = winDivertRegisterEventSource(sysPath)
-
-	WinDivertDriverInstallExit:
-		success := (service != 0)
-		if service != 0 {
-			//Start the service:
-			err = windows.StartService(service, 0, nil)
-			success = err == nil
-			if !success {
-				success = errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING)
-			} else {
-				// Mark the service for deletion.  This will cause the driver to
-				// unload if (1) there are no more open handles, and (2) the
-				// service is STOPPED or on system reboot.
-				windows.DeleteService(service)
-			}
-		}
-
-		if manager != 0 {
-			windows.CloseServiceHandle(manager)
-		}
-		if service != 0 {
-			windows.CloseServiceHandle(service)
-		}
-		windows.ReleaseMutex(mutex)
-		windows.CloseHandle(mutex)
-
-		if success {
-			return nil
+			return false, nil
 		} else {
-			return err
+			return false, err
 		}
+
 	}
+	defer windows.Close(h)
+
+	return true, nil
 }
 
 // todo
