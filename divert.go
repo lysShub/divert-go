@@ -58,9 +58,6 @@ func Load[T string | Mem](p T) error {
 	return nil
 }
 func Unload(ctx context.Context) error {
-	if err := divert.Release(); err != nil {
-		return err
-	}
 	return _WinDivertDriverUninstall(ctx)
 }
 

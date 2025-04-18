@@ -15,7 +15,6 @@ type lazyDLL interface {
 	Load() error
 	NewProc(name string) LazyProc
 	Loaded() bool
-	Release() error
 }
 
 type LazyProc interface {

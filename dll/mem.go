@@ -55,13 +55,6 @@ func (d *mem) Loaded() bool {
 	defer d.mu.RUnlock()
 	return d.dll != nil
 }
-func (d *mem) Release() error {
-	d.dll.Free()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.dll = nil
-	return nil
-}
 
 type MemLazyProc struct {
 	Name string

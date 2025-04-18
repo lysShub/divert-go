@@ -225,7 +225,6 @@ func winDivertDriverInstalled() (installed bool, err error) {
 	if err != nil {
 		if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) ||
 			errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
-
 			return false, nil
 		} else {
 			return false, errors.WithStack(err)

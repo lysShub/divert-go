@@ -3,7 +3,6 @@ package dll
 import (
 	"sync/atomic"
 
-	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
 
@@ -28,12 +27,3 @@ func (l *file) Load() error {
 	return nil
 }
 func (l *file) Loaded() bool { return l.loaded.Load() }
-func (l *file) Release() error {
-	if l.loaded.CompareAndSwap(true, false) {
-		h := l.LazyDLL.Handle()
-		err := windows.FreeLibrary(windows.Handle(h))
-		return errors.WithStack(err)
-	} else {
-		return nil
-	}
-}
