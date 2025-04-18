@@ -10,11 +10,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type LazyDll interface {
+type lazyDLL interface {
 	Handle() uintptr
 	Load() error
 	NewProc(name string) LazyProc
 	Loaded() bool
+	Release() error
 }
 
 type LazyProc interface {
@@ -23,46 +24,46 @@ type LazyProc interface {
 	Find() error
 }
 
-type CommLazyDll struct {
-	LazyDll
-}
+var _ = windows.LazyDLL{}
 
-func NewLazyDLL[T ~string | ~[]byte](dll T) *CommLazyDll {
+type LazyDLL struct{ lazyDLL }
+
+func NewLazyDLL[T ~string | ~[]byte](dll T) *LazyDLL {
 	switch dll := any(dll).(type) {
 	case string:
-		return &CommLazyDll{
-			LazyDll: &SysLazyDll{LazyDLL: windows.LazyDLL{Name: dll}},
+		return &LazyDLL{
+			lazyDLL: &file{LazyDLL: windows.LazyDLL{Name: dll}},
 		}
 	case []byte:
-		return &CommLazyDll{
-			LazyDll: &MemLazyDll{Data: dll},
+		return &LazyDLL{
+			lazyDLL: &mem{Data: dll},
 		}
 	default:
 		panic("")
 	}
 }
 
-// ResetLazyDll reset dll before load
-func ResetLazyDll[T ~string | ~[]byte](dll *CommLazyDll, src T) {
+// ResetLazyDLL reset dll before load
+func ResetLazyDLL[T ~string | ~[]byte](dll *LazyDLL, src T) {
 	if dll.Loaded() {
 		panic("cant't reset loaded dll")
 	}
 
 	switch src := any(src).(type) {
 	case string:
-		dll.LazyDll = &SysLazyDll{LazyDLL: windows.LazyDLL{Name: src}}
+		dll.lazyDLL = &file{LazyDLL: windows.LazyDLL{Name: src}}
 	case []byte:
-		dll.LazyDll = &MemLazyDll{Data: src}
+		dll.lazyDLL = &mem{Data: src}
 	default:
 		panic("")
 	}
 }
 
-func (d *CommLazyDll) NewProc(name string) LazyProc { return &CommLazyProc{Name: name, dll: d} }
+func (d *LazyDLL) NewProc(name string) LazyProc { return &CommLazyProc{Name: name, dll: d} }
 
 type CommLazyProc struct {
 	Name string
-	dll  *CommLazyDll
+	dll  *LazyDLL
 
 	found atomic.Bool
 	mu    sync.RWMutex
@@ -87,7 +88,7 @@ func (p *CommLazyProc) Find() error {
 			return nil
 		}
 
-		p.proc = p.dll.LazyDll.NewProc(p.Name)
+		p.proc = p.dll.lazyDLL.NewProc(p.Name)
 		p.found.Store(true)
 	}
 	return p.proc.Find()

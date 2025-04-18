@@ -303,6 +303,25 @@ func Test_Recv_Error(t *testing.T) {
 	})
 }
 
+func Test_Unload(t *testing.T) {
+	t.Run("unload/recv", func(t *testing.T) {
+		MustLoad(DLL)
+		d, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+
+		require.NoError(t, d.Close())
+		defer d.Close()
+
+		require.NoError(t, Unload(context.Background()))
+
+		_, err = d.Recv(make([]byte, 1536), nil)
+		require.True(t, errors.Is(err, ErrClosed{}), err)
+
+		MustLoad(DLL)
+	})
+
+}
+
 func Test_Recv(t *testing.T) {
 	MustLoad(DLL)
 

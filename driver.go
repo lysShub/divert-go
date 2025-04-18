@@ -4,6 +4,7 @@
 package divert
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,10 +23,10 @@ func driverInstall(b []byte) error {
 		if errors.Is(err, os.ErrNotExist) {
 			// todo: validate existed driver is same as b
 			if err := os.WriteFile(path, b, 0666); err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 		} else {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	return _WinDivertDriverInstall(path)
@@ -53,14 +54,14 @@ func _WinDivertDriverInstall(sysPath string) error {
 	// Open the service manager:
 	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ALL_ACCESS)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	defer windows.CloseServiceHandle(manager)
 
 	// Check if the WinDivert service already exists; if so, start it.
 	pdevice, err := windows.UTF16PtrFromString(WINDIVERT_DEVICE_NAME)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	service, err := windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
 	if err != nil {
@@ -68,7 +69,7 @@ func _WinDivertDriverInstall(sysPath string) error {
 			// Create the service:
 			psysPath, err := windows.UTF16PtrFromString(sysPath)
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 
 			service, err = windows.CreateService(
@@ -86,11 +87,11 @@ func _WinDivertDriverInstall(sysPath string) error {
 				if errors.Is(err, windows.ERROR_SERVICE_EXISTS) {
 					service, _ = windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
 				} else {
-					return err
+					return errors.WithStack(err)
 				}
 			}
 		} else {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	defer windows.CloseServiceHandle(service)
@@ -102,7 +103,7 @@ func _WinDivertDriverInstall(sysPath string) error {
 	if err != nil {
 		if errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
 		} else {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 
@@ -112,7 +113,7 @@ func _WinDivertDriverInstall(sysPath string) error {
 	return nil
 }
 
-func _WinDivertDriverUninstall() error {
+func _WinDivertDriverUninstall(ctx context.Context) error {
 	if installed, err := winDivertDriverInstalled(); err != nil {
 		return err
 	} else if !installed {
@@ -130,40 +131,51 @@ func _WinDivertDriverUninstall() error {
 	// Open the service manager:
 	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ALL_ACCESS)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	defer windows.CloseServiceHandle(manager)
 
 	pdevice, err := windows.UTF16PtrFromString(WINDIVERT_DEVICE_NAME)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	service, err := windows.OpenService(manager, pdevice, windows.SERVICE_ALL_ACCESS)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return nil
 		} else {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	defer windows.CloseServiceHandle(service)
 
 	err = windows.ControlService(service, windows.SERVICE_CONTROL_STOP, &windows.SERVICE_STATUS{})
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	var status = &windows.SERVICE_STATUS{}
+	t := time.NewTicker(time.Millisecond * 500)
+	defer t.Stop()
 	for {
 		if err := windows.QueryServiceStatus(service, status); err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		if status.CurrentState == windows.SERVICE_STOPPED {
-			break
+			err := windows.DeleteService(service)
+			if errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+				return nil
+			} else {
+				return errors.WithStack(err)
+			}
 		}
-		time.Sleep(time.Second)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+		}
 	}
-	return windows.DeleteService(service)
 }
 
 type driverMutex windows.Handle
@@ -184,7 +196,7 @@ func winDivertDriverMutex() (driverMutex, error) {
 func (m driverMutex) Lock() error {
 	event, err := windows.WaitForSingleObject(windows.Handle(m), windows.INFINITE)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	} else if event != windows.WAIT_OBJECT_0 && event != windows.WAIT_ABANDONED {
 		return errors.Errorf("WaitForSingleObject event %d", event)
 	}
@@ -198,7 +210,7 @@ func (m driverMutex) Unlock() {
 func winDivertDriverInstalled() (installed bool, err error) {
 	pname, err := windows.UTF16PtrFromString(fmt.Sprintf("\\\\.\\%s", WINDIVERT_DEVICE_NAME))
 	if err != nil {
-		return false, err
+		return false, errors.WithStack(err)
 	}
 
 	h, err := windows.CreateFile(
@@ -216,7 +228,7 @@ func winDivertDriverInstalled() (installed bool, err error) {
 
 			return false, nil
 		} else {
-			return false, err
+			return false, errors.WithStack(err)
 		}
 
 	}
