@@ -31,7 +31,7 @@ func (d *Handle) Close() error {
 		if r1 == 0 {
 			return handleError(e)
 		} else {
-			return errors.WithStack(_WinDivertDriverUninstall())
+			return nil
 		}
 	}
 	return ErrClosed{}

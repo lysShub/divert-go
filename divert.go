@@ -56,6 +56,9 @@ func Load[T string | Mem](p T) error {
 	}
 	return nil
 }
+func Unload() error {
+	return errors.WithStack(_WinDivertDriverUninstall())
+}
 
 func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, error) {
 	pf, err := windows.BytePtrFromString(filter)
