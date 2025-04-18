@@ -303,6 +303,20 @@ func Test_Recv_Error(t *testing.T) {
 	})
 }
 
+func Test_Unload(t *testing.T) {
+
+	t.Run("used", func(t *testing.T) {
+		MustLoad(DLL)
+		d, err := Open("false", Network, 0, 0)
+		require.NoError(t, err)
+		defer d.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+		defer cancel()
+		require.Equal(t, context.DeadlineExceeded, Unload(ctx))
+	})
+}
+
 func Test_Recv(t *testing.T) {
 	MustLoad(DLL)
 

@@ -4,6 +4,7 @@
 package divert
 
 import (
+	"context"
 	"syscall"
 	"unsafe"
 
@@ -45,19 +46,19 @@ func Load[T string | Mem](p T) error {
 
 	switch p := any(p).(type) {
 	case string:
-		dll.ResetLazyDll(divert, p)
+		dll.ResetLazyDLL(divert, p)
 	case Mem:
 		if err := driverInstall(p.Sys); err != nil {
-			return errors.WithStack(err)
+			return err
 		}
-		dll.ResetLazyDll(divert, p.DLL)
+		dll.ResetLazyDLL(divert, p.DLL)
 	default:
 		panic("")
 	}
 	return nil
 }
-func Unload() error {
-	return errors.WithStack(_WinDivertDriverUninstall())
+func Unload(ctx context.Context) error {
+	return _WinDivertDriverUninstall(ctx)
 }
 
 func Open(filter string, layer Layer, priority int16, flags Flag) (*Handle, error) {

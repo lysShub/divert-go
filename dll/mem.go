@@ -10,20 +10,20 @@ import (
 	"golang.zx2c4.com/wireguard/windows/driver/memmod"
 )
 
-type MemLazyDll struct {
+type mem struct {
 	Data []byte
 
 	mu  sync.RWMutex
 	dll *memmod.Module
 }
 
-var _ LazyDll = (*MemLazyDll)(nil)
+var _ lazyDLL = (*mem)(nil)
 
-func (d *MemLazyDll) Handle() uintptr {
+func (d *mem) Handle() uintptr {
 	d.mustLoad()
 	return d.dll.BaseAddr()
 }
-func (d *MemLazyDll) Load() (err error) {
+func (d *mem) Load() (err error) {
 	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.dll))) != nil {
 		return nil
 	}
@@ -40,17 +40,17 @@ func (d *MemLazyDll) Load() (err error) {
 	atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&d.dll)), unsafe.Pointer(dll))
 	return nil
 }
-func (d *MemLazyDll) mustLoad() {
+func (d *mem) mustLoad() {
 	err := d.Load()
 	if err != nil {
 		panic(err)
 	}
 }
 
-func (d *MemLazyDll) NewProc(name string) LazyProc {
+func (d *mem) NewProc(name string) LazyProc {
 	return &MemLazyProc{Name: name, l: d}
 }
-func (d *MemLazyDll) Loaded() bool {
+func (d *mem) Loaded() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.dll != nil
@@ -60,7 +60,7 @@ type MemLazyProc struct {
 	Name string
 
 	mu   sync.Mutex
-	l    *MemLazyDll
+	l    *mem
 	proc uintptr
 }
 
